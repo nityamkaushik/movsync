@@ -27,6 +27,42 @@ class FirebaseSync(
         roomRef(roomCode).child("createdAt").setValue(ServerValue.TIMESTAMP).await()
     }
 
+    suspend fun setRoomStarted(roomCode: String) {
+        roomRef(roomCode).child("started").setValue(true).await()
+    }
+
+    fun observeRoomStarted(roomCode: String): Flow<Boolean> = callbackFlow {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                trySend(snapshot.getValue(Boolean::class.java) ?: false)
+            }
+            override fun onCancelled(error: DatabaseError) {
+                close(error.toException())
+            }
+        }
+        val ref = roomRef(roomCode).child("started")
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+
+    suspend fun setAllowControls(roomCode: String, allow: Boolean) {
+        roomRef(roomCode).child("allowControls").setValue(allow).await()
+    }
+
+    fun observeAllowControls(roomCode: String): Flow<Boolean> = callbackFlow {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                trySend(snapshot.getValue(Boolean::class.java) ?: false)
+            }
+            override fun onCancelled(error: DatabaseError) {
+                close(error.toException())
+            }
+        }
+        val ref = roomRef(roomCode).child("allowControls")
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+
     suspend fun writeSyncCommand(roomCode: String, state: SyncState) {
         val payload = mapOf(
             "command" to state.command,

@@ -1,0 +1,334 @@
+package com.nityam.movsync.ui.watch
+
+import android.app.Activity
+import android.net.Uri
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.BrightnessMedium
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.delay
+
+@Composable
+fun LocalWatchScreen(
+    videoUri: Uri,
+    onLeave: () -> Unit
+) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    var controlsVisible by remember { mutableStateOf(true) }
+    var showAudioDialog by remember { mutableStateOf(false) }
+    var showSubtitleDialog by remember { mutableStateOf(false) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    
+    var showVolumeIndicator by remember { mutableStateOf(false) }
+    var showBrightnessIndicator by remember { mutableStateOf(false) }
+    var currentVolume by remember { mutableFloatStateOf(0f) }
+    var currentBrightness by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(currentVolume) {
+        if (showVolumeIndicator) {
+            kotlinx.coroutines.delay(1000)
+            showVolumeIndicator = false
+        }
+    }
+    LaunchedEffect(currentBrightness) {
+        if (showBrightnessIndicator) {
+            kotlinx.coroutines.delay(1000)
+            showBrightnessIndicator = false
+        }
+    }
+
+    val player = remember(videoUri) {
+        val renderersFactory = DefaultRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
+        }
+        ExoPlayer.Builder(context, renderersFactory).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUri))
+            prepare()
+            playWhenReady = true // Auto-play local videos
+        }
+    }
+
+    LaunchedEffect(player) {
+        while (true) {
+            isPlaying = player.isPlaying
+            progress = if (player.duration > 0L) {
+                player.currentPosition.toFloat() / player.duration.toFloat()
+            } else {
+                0f
+            }
+            delay(400L)
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                player.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("MovSync", "Local Player Error", error)
+                android.widget.Toast.makeText(context, "Player Error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        val window = activity?.window
+        val controller = if (window != null) WindowCompat.getInsetsController(window, window.decorView) else null
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose {
+            player.release()
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    BackHandler {
+        onLeave()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = { offset ->
+                        val duration = player.duration.takeIf { it > 0L } ?: return@detectTapGestures
+                        val current = player.currentPosition
+                        if (offset.x < size.width / 2) {
+                            player.seekTo((current - 10000L).coerceAtLeast(0L))
+                        } else {
+                            player.seekTo((current + 10000L).coerceAtMost(duration))
+                        }
+                    },
+                    onTap = { controlsVisible = !controlsVisible }
+                )
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        val duration = player.duration.takeIf { it > 0L } ?: return@detectHorizontalDragGestures
+                        // 1 pixel drag = 100ms seek
+                        val newPos = player.currentPosition + (dragAmount * 100L).toLong()
+                        player.seekTo(newPos.coerceIn(0L, duration))
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                var isRightSide = false
+                var ignoreDrag = false
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        isRightSide = offset.x > size.width / 2
+                        ignoreDrag = offset.y < size.height * 0.15f || offset.y > size.height * 0.85f
+                    },
+                    onVerticalDrag = { change, dragAmount ->
+                        if (!ignoreDrag) {
+                            change.consume()
+                            val delta = -(dragAmount / size.height.toFloat())
+                            if (isRightSide) {
+                                val newVolume = (player.volume + delta).coerceIn(0f, 1f)
+                                player.volume = newVolume
+                                currentVolume = newVolume
+                                showVolumeIndicator = true
+                                showBrightnessIndicator = false
+                            } else {
+                                val window = activity?.window
+                                if (window != null) {
+                                    val attributes = window.attributes
+                                    val cB = if (attributes.screenBrightness < 0f) 0.5f else attributes.screenBrightness
+                                    val newBrightness = (cB + delta).coerceIn(0.01f, 1f)
+                                    attributes.screenBrightness = newBrightness
+                                    window.attributes = attributes
+                                    currentBrightness = newBrightness
+                                    showBrightnessIndicator = true
+                                    showVolumeIndicator = false
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+    ) {
+        VideoPlayerComposable(player = player, modifier = Modifier.fillMaxSize())
+        if (controlsVisible) {
+            LocalPlayerOverlay(
+                isPlaying = isPlaying,
+                position = progress,
+                onPlayPause = {
+                    if (player.isPlaying) player.pause() else player.play()
+                },
+                onSeek = { value ->
+                    val duration = player.duration.takeIf { it > 0L } ?: 0L
+                    player.seekTo((duration * value).toLong())
+                },
+                onLeave = onLeave,
+                onAudioSelect = { showAudioDialog = true },
+                onSubtitleSelect = { showSubtitleDialog = true },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        
+        if (showVolumeIndicator) {
+            com.nityam.movsync.ui.components.GestureIndicator(
+                icon = androidx.compose.material.icons.Icons.Default.VolumeUp,
+                value = currentVolume,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else if (showBrightnessIndicator) {
+            com.nityam.movsync.ui.components.GestureIndicator(
+                icon = androidx.compose.material.icons.Icons.Default.BrightnessMedium,
+                value = currentBrightness,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+    }
+
+    if (showAudioDialog) {
+        TrackSelectionDialog(player = player, trackType = C.TRACK_TYPE_AUDIO) {
+            showAudioDialog = false
+        }
+    }
+    if (showSubtitleDialog) {
+        TrackSelectionDialog(player = player, trackType = C.TRACK_TYPE_TEXT) {
+            showSubtitleDialog = false
+        }
+    }
+}
+
+@Composable
+private fun LocalPlayerOverlay(
+    isPlaying: Boolean,
+    position: Float,
+    onPlayPause: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onLeave: () -> Unit,
+    onAudioSelect: () -> Unit,
+    onSubtitleSelect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.35f))
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onLeave) {
+                Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)
+            }
+        }
+        
+        // Center Play/Pause Button
+        IconButton(
+            onClick = onPlayPause,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .background(Color.Black.copy(alpha = 0.4f), shape = androidx.compose.foundation.shape.CircleShape)
+                .padding(16.dp)
+        ) {
+            Icon(
+                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = "Play or pause",
+                tint = Color.White,
+                modifier = Modifier.size(48.dp)
+            )
+        }
+        
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            IconButton(onClick = onPlayPause) {
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = "Play or pause",
+                    tint = Color.White
+                )
+            }
+            com.nityam.movsync.ui.components.MinimalSeekBar(
+                position = position,
+                onSeek = onSeek,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onAudioSelect) {
+                Icon(Icons.Default.Audiotrack, contentDescription = "Audio Tracks", tint = Color.White)
+            }
+            IconButton(onClick = onSubtitleSelect) {
+                Icon(Icons.Default.Subtitles, contentDescription = "Subtitles", tint = Color.White)
+            }
+        }
+    }
+}

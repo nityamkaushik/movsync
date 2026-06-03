@@ -8,8 +8,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 class DriftCorrector(
-    private val acceptableDriftMs: Long = 200L,
-    private val hardSeekDriftMs: Long = 1_500L
+    private val acceptableDriftMs: Long = 75L,
+    private val hardSeekDriftMs: Long = 2_000L
 ) {
     private var resetJob: Job? = null
     private var repeatedHardSeeks = 0
@@ -20,8 +20,8 @@ class DriftCorrector(
         return when {
             magnitude < acceptableDriftMs -> DriftAction.InSync(drift)
             magnitude < hardSeekDriftMs -> {
-                val speed = if (drift < 0L) 1.05f else 0.95f
-                DriftAction.SoftCorrect(drift, speed, (magnitude / 0.05f).toLong())
+                val speed = if (drift < 0L) 1.12f else 0.88f
+                DriftAction.SoftCorrect(drift, speed, (magnitude / 0.12f).toLong())
             }
             else -> DriftAction.HardSeek(drift, expectedPosition)
         }

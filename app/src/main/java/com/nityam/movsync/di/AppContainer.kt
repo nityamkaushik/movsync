@@ -10,6 +10,7 @@ import com.nityam.movsync.data.supabase.SupabaseClientProvider
 import com.nityam.movsync.data.sync.DriftCorrector
 import com.nityam.movsync.data.sync.FileHasher
 import com.nityam.movsync.data.sync.SyncEngine
+import com.nityam.movsync.data.updater.UpdateManager
 
 class AppContainer(context: Context) {
     val supabaseClient = SupabaseClientProvider.create()
@@ -22,4 +23,5 @@ class AppContainer(context: Context) {
     val driftCorrector = DriftCorrector()
     val syncEngine = SyncEngine(firebaseSync, driftCorrector)
     val roomRepository = RoomRepository(supabaseClient, firebaseSync)
+    val updateManager = UpdateManager(context.applicationContext)
 }

@@ -11,7 +11,12 @@ import com.nityam.movsync.ui.create.CreateRoomScreen
 import com.nityam.movsync.ui.home.HomeScreen
 import com.nityam.movsync.ui.join.JoinRoomScreen
 import com.nityam.movsync.ui.lobby.LobbyScreen
+import com.nityam.movsync.ui.watch.LocalWatchScreen
 import com.nityam.movsync.ui.watch.WatchScreen
+import com.nityam.movsync.ui.settings.AboutScreen
+import com.nityam.movsync.ui.settings.HelpScreen
+import com.nityam.movsync.ui.settings.PrivacyPolicyScreen
+import com.nityam.movsync.ui.settings.SettingsScreen
 
 @Composable
 fun NavGraph() {
@@ -20,7 +25,11 @@ fun NavGraph() {
         composable(Route.Home.path) {
             HomeScreen(
                 onCreateRoom = { navController.navigate(Route.Create.path) },
-                onJoinRoom = { navController.navigate(Route.Join.path) }
+                onJoinRoom = { navController.navigate(Route.Join.path) },
+                onLocalPlay = { uri -> 
+                    navController.navigate(Route.LocalWatch.create(uri))
+                },
+                navController = navController
             )
         }
         composable(Route.Create.path) {
@@ -49,7 +58,9 @@ fun NavGraph() {
         ) { entry ->
             val roomCode = entry.arguments?.getString("roomCode").orEmpty()
             val isHost = entry.arguments?.getBoolean("isHost") ?: false
-            val uri = Uri.parse(Uri.decode(entry.arguments?.getString("uri").orEmpty()))
+            val uriBase64 = entry.arguments?.getString("uri").orEmpty()
+            val uriString = String(android.util.Base64.decode(uriBase64, android.util.Base64.URL_SAFE))
+            val uri = Uri.parse(uriString)
             LobbyScreen(
                 roomCode = roomCode,
                 isHost = isHost,
@@ -71,8 +82,36 @@ fun NavGraph() {
             WatchScreen(
                 roomCode = entry.arguments?.getString("roomCode").orEmpty(),
                 isHost = entry.arguments?.getBoolean("isHost") ?: false,
-                videoUri = Uri.parse(Uri.decode(entry.arguments?.getString("uri").orEmpty())),
+                videoUri = Uri.parse(String(android.util.Base64.decode(entry.arguments?.getString("uri").orEmpty(), android.util.Base64.URL_SAFE))),
                 onLeave = { navController.popBackStack(Route.Home.path, inclusive = false) }
+            )
+        }
+        composable(
+            route = Route.LocalWatch.path,
+            arguments = listOf(
+                navArgument("uri") { type = NavType.StringType }
+            )
+        ) { entry ->
+            LocalWatchScreen(
+                videoUri = Uri.parse(String(android.util.Base64.decode(entry.arguments?.getString("uri").orEmpty(), android.util.Base64.URL_SAFE))),
+                onLeave = { navController.popBackStack() }
+            )
+        }
+        composable(Route.About.path) {
+            AboutScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Route.Help.path) {
+            HelpScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Route.PrivacyPolicy.path) {
+            PrivacyPolicyScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Route.Settings.path) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onAboutClick = { navController.navigate("about") },
+                onHelpClick = { navController.navigate("help") },
+                onPrivacyClick = { navController.navigate("privacy") }
             )
         }
     }
@@ -84,12 +123,24 @@ sealed class Route(val path: String) {
     data object Join : Route("join")
     data object Lobby : Route("lobby/{roomCode}/{isHost}/{uri}") {
         fun create(code: String, isHost: Boolean, uri: Uri): String {
-            return "lobby/$code/$isHost/${Uri.encode(uri.toString())}"
+            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+            return "lobby/$code/$isHost/$b64"
         }
     }
     data object Watch : Route("watch/{roomCode}/{isHost}/{uri}") {
         fun create(code: String, isHost: Boolean, uri: Uri): String {
-            return "watch/$code/$isHost/${Uri.encode(uri.toString())}"
+            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+            return "watch/$code/$isHost/$b64"
         }
     }
+    data object LocalWatch : Route("localWatch/{uri}") {
+        fun create(uri: Uri): String {
+            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+            return "localWatch/$b64"
+        }
+    }
+    data object About : Route("about")
+    data object Help : Route("help")
+    data object PrivacyPolicy : Route("privacy")
+    data object Settings : Route("settings")
 }
