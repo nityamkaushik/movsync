@@ -42,15 +42,21 @@ fun TrackSelectionDialog(
             LazyColumn {
                 item {
                     TrackOption(
-                        name = "None / Default",
-                        selected = !groups.any { it.isSelected },
+                        name = if (trackType == C.TRACK_TYPE_TEXT) "None" else "Default",
+                        selected = if (trackType == C.TRACK_TYPE_TEXT) {
+                            player.trackSelectionParameters.disabledTrackTypes.contains(trackType)
+                        } else {
+                            !groups.any { it.isSelected }
+                        },
                         onClick = {
                             player.trackSelectionParameters = player.trackSelectionParameters
                                 .buildUpon()
                                 .clearOverridesOfType(trackType)
                                 .apply {
                                     if (trackType == C.TRACK_TYPE_TEXT) {
-                                        setIgnoredTextSelectionFlags(C.SELECTION_FLAG_DEFAULT.inv())
+                                        setTrackTypeDisabled(trackType, true)
+                                    } else {
+                                        setTrackTypeDisabled(trackType, false)
                                     }
                                 }
                                 .build()
@@ -77,6 +83,7 @@ fun TrackSelectionDialog(
                             onClick = {
                                 player.trackSelectionParameters = player.trackSelectionParameters
                                     .buildUpon()
+                                    .setTrackTypeDisabled(trackType, false)
                                     .clearOverridesOfType(trackType)
                                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
                                     .build()

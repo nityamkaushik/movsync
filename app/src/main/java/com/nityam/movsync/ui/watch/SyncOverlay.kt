@@ -8,13 +8,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,9 +39,10 @@ fun SyncOverlay(
     onToggleControls: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Float) -> Unit,
-    onLeave: () -> Unit,
     onAudioSelect: () -> Unit,
     onSubtitleSelect: () -> Unit,
+    onEnterPip: () -> Unit,
+    onLeave: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier) {
@@ -77,8 +79,16 @@ fun SyncOverlay(
                     }
                 )
             }
-            IconButton(onClick = onLeave) {
-                Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onEnterPip) {
+                    Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Enter PiP", tint = Color.White)
+                }
+                IconButton(onClick = onLeave) {
+                    Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)
+                }
             }
         }
         
@@ -89,8 +99,8 @@ fun SyncOverlay(
                 onClick = onPlayPause,
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .size(80.dp)
                     .background(Color.Black.copy(alpha = 0.4f), shape = androidx.compose.foundation.shape.CircleShape)
-                    .padding(16.dp)
             ) {
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,

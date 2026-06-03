@@ -55,9 +55,17 @@ fun WatchScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val pipController = rememberPipController()
+    val isInPipMode by rememberIsInPipMode()
     val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
     val allowControls by viewModel.allowControls.collectAsStateWithLifecycle()
     var showControls by remember { mutableStateOf(true) }
+    LaunchedEffect(showControls) {
+        if (showControls) {
+            delay(3000)
+            showControls = false
+        }
+    }
     var confirmLeave by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
@@ -89,6 +97,7 @@ fun WatchScreen(
         ExoPlayer.Builder(context, renderersFactory).build().apply {
             setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
+            playWhenReady = true
         }
     }
 
@@ -108,10 +117,26 @@ fun WatchScreen(
         }
     }
 
+    val controlsEnabled = isHost || allowControls
+    LaunchedEffect(isPlaying, controlsEnabled) {
+        pipController.updatePipParams(isPlaying, controlsEnabled)
+    }
+
+    PipActionReceiver {
+        if (controlsEnabled) {
+            if (isPlaying) viewModel.userPause() else viewModel.userPlay()
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
+                val isPip = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && activity?.isInPictureInPictureMode == true
+                if (!isPip) {
+                    player.pause()
+                }
+            } else if (event == Lifecycle.Event.ON_STOP) {
                 player.pause()
             }
         }
@@ -147,7 +172,11 @@ fun WatchScreen(
     }
 
     BackHandler {
-        confirmLeave = true
+        if (pipController.isPipSupported) {
+            pipController.enterPip()
+        } else {
+            confirmLeave = true
+        }
     }
 
     Box(
@@ -227,7 +256,7 @@ fun WatchScreen(
                 }
         )
 
-        if (showControls) {
+        if (showControls && !isInPipMode) {
             SyncOverlay(
                 roomCode = roomCode,
                 syncStatus = syncStatus,
@@ -243,14 +272,16 @@ fun WatchScreen(
                     val duration = player.duration.takeIf { it > 0L } ?: 0L
                     viewModel.userSeek((duration * value).toLong())
                 },
-                onLeave = onLeave,
                 onAudioSelect = { showAudioDialog = true },
                 onSubtitleSelect = { showSubtitleDialog = true },
+                onEnterPip = { pipController.enterPip() },
+                onLeave = { confirmLeave = true },
                 modifier = Modifier.fillMaxSize()
             )
         }
 
-        if (showVolumeIndicator) {
+        if (!isInPipMode) {
+            if (showVolumeIndicator) {
             com.nityam.movsync.ui.components.GestureIndicator(
                 icon = androidx.compose.material.icons.Icons.Default.VolumeUp,
                 value = currentVolume,
@@ -262,6 +293,7 @@ fun WatchScreen(
                 value = currentBrightness,
                 modifier = Modifier.align(Alignment.Center)
             )
+        }
         }
     }
 
