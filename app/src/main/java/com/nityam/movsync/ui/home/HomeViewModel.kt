@@ -17,7 +17,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _updateAvailable = MutableStateFlow(false)
     val updateAvailable = _updateAvailable.asStateFlow()
 
+    private val _displayName = MutableStateFlow("")
+    val displayName = _displayName.asStateFlow()
+
     init {
+        viewModelScope.launch {
+            authRepository.displayName.collect { name ->
+                if (_displayName.value != name) {
+                    _displayName.value = name
+                }
+            }
+        }
         viewModelScope.launch {
             val info = updateManager.checkForUpdates()
             if (info.isUpdateAvailable) {
@@ -26,13 +36,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    val displayName = authRepository.displayName.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = "Movie Friend"
-    )
-
     fun updateDisplayName(name: String) {
+        _displayName.value = name
         viewModelScope.launch { authRepository.saveDisplayName(name) }
     }
 }

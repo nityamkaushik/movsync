@@ -44,7 +44,7 @@ import com.nityam.movsync.ui.components.GradientButton
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onCreateRoom: () -> Unit,
+    onCreateRoom: (Uri) -> Unit,
     onJoinRoom: () -> Unit,
     onLocalPlay: (Uri) -> Unit,
     navController: NavController,
@@ -62,6 +62,17 @@ fun HomeScreen(
                 // Ignore, emulator or non-persistable URI
             }
             onLocalPlay(it)
+        }
+    }
+    val createRoomLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+            }
+            onCreateRoom(it)
         }
     }
     val displayName by viewModel.displayName.collectAsStateWithLifecycle()
@@ -118,19 +129,34 @@ fun HomeScreen(
                     value = displayName,
                     onValueChange = viewModel::updateDisplayName,
                     label = { Text("Display name") },
-                    singleLine = true
+                    placeholder = { Text("Movie Friend") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                    )
                 )
             }
-            GradientButton(text = "Create Room", onClick = onCreateRoom)
-            FilledTonalButton(onClick = onJoinRoom) {
+            GradientButton(text = "Create Room", onClick = { createRoomLauncher.launch(arrayOf("video/*")) })
+            FilledTonalButton(
+                onClick = onJoinRoom,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+            ) {
                 Icon(Icons.Default.GroupAdd, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Join Room")
+                Text("Join Room", style = MaterialTheme.typography.titleMedium)
             }
-            FilledTonalButton(onClick = { pickerLauncher.launch(arrayOf("video/*")) }) {
+            FilledTonalButton(
+                onClick = { pickerLauncher.launch(arrayOf("video/*")) },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+            ) {
                 Icon(Icons.Default.VideoLibrary, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Play Local Video")
+                Text("Play Local Video", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.weight(1f))
             

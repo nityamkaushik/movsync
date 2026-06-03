@@ -24,8 +24,10 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +53,7 @@ fun LobbyScreen(
 ) {
     val participants by viewModel.participants.collectAsStateWithLifecycle()
     val started by viewModel.started.collectAsStateWithLifecycle()
+    val allowControls by viewModel.allowControls.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val pulse by rememberInfiniteTransition(label = "waitingPulse").animateFloat(
         initialValue = 0.45f,

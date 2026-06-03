@@ -24,7 +24,7 @@ fun NavGraph() {
     NavHost(navController = navController, startDestination = Route.Home.path) {
         composable(Route.Home.path) {
             HomeScreen(
-                onCreateRoom = { navController.navigate(Route.Create.path) },
+                onCreateRoom = { uri -> navController.navigate(Route.Create.create(uri)) },
                 onJoinRoom = { navController.navigate(Route.Join.path) },
                 onLocalPlay = { uri -> 
                     navController.navigate(Route.LocalWatch.create(uri))
@@ -32,11 +32,19 @@ fun NavGraph() {
                 navController = navController
             )
         }
-        composable(Route.Create.path) {
+        composable(
+            route = Route.Create.path,
+            arguments = listOf(
+                navArgument("uri") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val uriString = String(android.util.Base64.decode(entry.arguments?.getString("uri").orEmpty(), android.util.Base64.URL_SAFE))
+            val uri = Uri.parse(uriString)
             CreateRoomScreen(
+                videoUri = uri,
                 onBack = { navController.popBackStack() },
-                onOpenLobby = { code, uri ->
-                    navController.navigate(Route.Lobby.create(code, isHost = true, uri = uri))
+                onOpenLobby = { code, u ->
+                    navController.navigate(Route.Lobby.create(code, isHost = true, uri = u))
                 }
             )
         }
@@ -119,7 +127,12 @@ fun NavGraph() {
 
 sealed class Route(val path: String) {
     data object Home : Route("home")
-    data object Create : Route("create")
+    data object Create : Route("create/{uri}") {
+        fun create(uri: Uri): String {
+            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+            return "create/$b64"
+        }
+    }
     data object Join : Route("join")
     data object Lobby : Route("lobby/{roomCode}/{isHost}/{uri}") {
         fun create(code: String, isHost: Boolean, uri: Uri): String {

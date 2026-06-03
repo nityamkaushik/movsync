@@ -21,12 +21,12 @@ class AuthRepository(
     private val displayNameKey = stringPreferencesKey("display_name")
 
     val displayName: Flow<String> = context.authDataStore.data.map { preferences ->
-        preferences[displayNameKey] ?: "Movie Friend"
+        preferences[displayNameKey] ?: ""
     }
 
     suspend fun saveDisplayName(name: String) {
         context.authDataStore.edit { preferences ->
-            preferences[displayNameKey] = name.trim().ifBlank { "Movie Friend" }
+            preferences[displayNameKey] = name
         }
     }
 
