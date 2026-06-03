@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.nityam.movsync" />
+                  <option name="mobileSdkAppId" value="1:223815557890:android:cf48d92b635fbd9602181b" />
+                  <option name="projectId" value="movsync-0605" />
+                  <option name="projectNumber" value="223815557890" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
