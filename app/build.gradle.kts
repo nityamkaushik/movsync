@@ -30,8 +30,8 @@ android {
         applicationId = "com.nityam.movsync"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.3.2"
+        versionCode = 6
+        versionName = "1.3.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
