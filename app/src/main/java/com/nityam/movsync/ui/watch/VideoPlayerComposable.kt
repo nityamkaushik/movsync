@@ -31,6 +31,16 @@ fun VideoPlayerComposable(
             PlayerView(context).apply {
                 useController = false
                 this.player = player
+                subtitleView?.setStyle(
+                    androidx.media3.ui.CaptionStyleCompat(
+                        android.graphics.Color.WHITE,
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                        androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+                        android.graphics.Color.BLACK,
+                        null
+                    )
+                )
             }
         },
         update = { it.player = player }

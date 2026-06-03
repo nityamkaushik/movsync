@@ -20,16 +20,42 @@ class SyncEngine(
     private var playerListener: Player.Listener? = null
     private var applyingRemoteCommand = false
 
-    fun startHost(
+    fun start(
         roomCode: String,
         userId: String,
+        isHost: Boolean,
         player: Player,
-        scope: CoroutineScope
+        scope: CoroutineScope,
+        allowControlsFlow: kotlinx.coroutines.flow.StateFlow<Boolean>,
+        onStatus: (SyncStatus) -> Unit
     ) {
         stop(roomCode, player)
+        
+        // 1. Listen to Sync Queue (Both Host & Participant)
+        syncListener = firebaseSync.listenToSync(roomCode) { state ->
+            if (state.senderId == userId) return@listenToSync
+            applyingRemoteCommand = true
+            when (state.command) {
+                "play" -> {
+                    player.seekTo(state.position)
+                    player.play()
+                }
+                "pause" -> {
+                    player.seekTo(state.position)
+                    player.pause()
+                }
+                "seek" -> player.seekTo(state.position)
+            }
+            player.setPlaybackSpeed(state.speed)
+            applyingRemoteCommand = false
+        }
+
+        // 2. Broadcast Player Changes to Sync Queue
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (applyingRemoteCommand) return
+                if (!isHost && !allowControlsFlow.value) return
+                
                 scope.launch {
                     firebaseSync.writeSyncCommand(
                         roomCode,
@@ -49,6 +75,8 @@ class SyncEngine(
                 reason: Int
             ) {
                 if (applyingRemoteCommand || reason != Player.DISCONTINUITY_REASON_SEEK) return
+                if (!isHost && !allowControlsFlow.value) return
+                
                 scope.launch {
                     firebaseSync.writeSyncCommand(
                         roomCode,
@@ -64,59 +92,37 @@ class SyncEngine(
         }
         player.addListener(listener)
         playerListener = listener
-        heartbeatJob = scope.launch {
-            while (true) {
-                firebaseSync.writeHeartbeat(
-                    roomCode,
-                    HeartbeatState(
-                        position = player.currentPosition,
-                        isPlaying = player.isPlaying
-                    )
-                )
-                delay(2_000L)
-            }
-        }
-    }
 
-    fun startParticipant(
-        roomCode: String,
-        userId: String,
-        player: Player,
-        scope: CoroutineScope,
-        onStatus: (SyncStatus) -> Unit
-    ) {
-        stop(roomCode, player)
-        syncListener = firebaseSync.listenToSync(roomCode) { state ->
-            if (state.senderId == userId) return@listenToSync
-            applyingRemoteCommand = true
-            when (state.command) {
-                "play" -> {
-                    player.seekTo(state.position)
-                    player.play()
+        // 3. Heartbeat & Drift Correction
+        if (isHost) {
+            heartbeatJob = scope.launch {
+                while (true) {
+                    firebaseSync.writeHeartbeat(
+                        roomCode,
+                        HeartbeatState(
+                            position = player.currentPosition,
+                            isPlaying = player.isPlaying
+                        )
+                    )
+                    delay(2_000L)
                 }
-                "pause" -> {
-                    player.seekTo(state.position)
+            }
+        } else {
+            heartbeatListener = firebaseSync.listenToHeartbeat(roomCode) { heartbeat ->
+                val adjustedPosition = heartbeat.position + (System.currentTimeMillis() - heartbeat.timestamp)
+                if (heartbeat.isPlaying && !player.isPlaying) {
+                    player.play()
+                } else if (!heartbeat.isPlaying && player.isPlaying) {
                     player.pause()
                 }
-                "seek" -> player.seekTo(state.position)
+                driftCorrector.apply(player, adjustedPosition, scope, onStatus)
             }
-            player.setPlaybackSpeed(state.speed)
-            applyingRemoteCommand = false
-        }
-        heartbeatListener = firebaseSync.listenToHeartbeat(roomCode) { heartbeat ->
-            val adjustedPosition = heartbeat.position + (System.currentTimeMillis() - heartbeat.timestamp)
-            if (heartbeat.isPlaying && !player.isPlaying) {
-                player.play()
-            } else if (!heartbeat.isPlaying && player.isPlaying) {
-                player.pause()
-            }
-            driftCorrector.apply(player, adjustedPosition, scope, onStatus)
-        }
-        scope.launch {
-            firebaseSync.getHeartbeatOnce(roomCode)?.let { heartbeat ->
-                val adjustedPosition = heartbeat.position + (System.currentTimeMillis() - heartbeat.timestamp)
-                player.seekTo(adjustedPosition.coerceAtLeast(0L))
-                if (heartbeat.isPlaying) player.play() else player.pause()
+            scope.launch {
+                firebaseSync.getHeartbeatOnce(roomCode)?.let { heartbeat ->
+                    val adjustedPosition = heartbeat.position + (System.currentTimeMillis() - heartbeat.timestamp)
+                    player.seekTo(adjustedPosition.coerceAtLeast(0L))
+                    if (heartbeat.isPlaying) player.play() else player.pause()
+                }
             }
         }
     }
