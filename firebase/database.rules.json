@@ -1,0 +1,25 @@
+{
+  "rules": {
+    "movsync": {
+      "rooms": {
+        "$roomCode": {
+          ".read": true,
+          "sync": {
+            ".write": true,
+            ".validate": "newData.hasChildren(['command', 'position', 'timestamp', 'senderId'])"
+          },
+          "heartbeat": {
+            ".write": true,
+            ".validate": "newData.hasChildren(['position', 'isPlaying', 'timestamp'])"
+          },
+          "presence": {
+            "$userId": {
+              ".write": "(auth != null && auth.uid == $userId) || !data.exists()",
+              ".read": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

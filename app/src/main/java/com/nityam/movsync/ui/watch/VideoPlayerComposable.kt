@@ -1,0 +1,38 @@
+package com.nityam.movsync.ui.watch
+
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.Player
+import androidx.media3.ui.PlayerView
+
+@Composable
+fun VideoPlayerComposable(
+    player: Player,
+    modifier: Modifier = Modifier
+) {
+    val activity = LocalContext.current as? Activity
+    DisposableEffect(Unit) {
+        val previousOrientation = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        onDispose {
+            if (previousOrientation != null) {
+                activity.requestedOrientation = previousOrientation
+            }
+        }
+    }
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            PlayerView(context).apply {
+                useController = false
+                this.player = player
+            }
+        },
+        update = { it.player = player }
+    )
+}
