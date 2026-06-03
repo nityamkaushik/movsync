@@ -51,6 +51,12 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun stop() {
+        activeRoomCode?.let { container.syncEngine.stop(it, activePlayer) }
+        activeRoomCode = null
+        activePlayer = null
+    }
+
     fun toggleControls() {
         if (isHostRef) {
             val room = activeRoomCode ?: return
@@ -60,10 +66,34 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun stop() {
-        activeRoomCode?.let { container.syncEngine.stop(it, activePlayer) }
-        activeRoomCode = null
-        activePlayer = null
+    fun userPlay() {
+        val player = activePlayer ?: return
+        val room = activeRoomCode ?: return
+        player.play()
+        viewModelScope.launch {
+            val userId = container.authRepository.ensureSignedIn()
+            container.syncEngine.broadcastCommand(room, userId, "play", player.currentPosition, player.playbackParameters.speed)
+        }
+    }
+
+    fun userPause() {
+        val player = activePlayer ?: return
+        val room = activeRoomCode ?: return
+        player.pause()
+        viewModelScope.launch {
+            val userId = container.authRepository.ensureSignedIn()
+            container.syncEngine.broadcastCommand(room, userId, "pause", player.currentPosition, player.playbackParameters.speed)
+        }
+    }
+
+    fun userSeek(positionMs: Long) {
+        val player = activePlayer ?: return
+        val room = activeRoomCode ?: return
+        player.seekTo(positionMs)
+        viewModelScope.launch {
+            val userId = container.authRepository.ensureSignedIn()
+            container.syncEngine.broadcastCommand(room, userId, "seek", positionMs, player.playbackParameters.speed)
+        }
     }
 
     override fun onCleared() {

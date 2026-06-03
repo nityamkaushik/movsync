@@ -235,13 +235,13 @@ fun WatchScreen(
                 isPlaying = isPlaying,
                 position = progress,
                 allowControls = allowControls,
-                onToggleControls = { showControls = !showControls },
+                onToggleControls = viewModel::toggleControls,
                 onPlayPause = {
-                    if (player.isPlaying) player.pause() else player.play()
+                    if (isPlaying) viewModel.userPause() else viewModel.userPlay()
                 },
                 onSeek = { value ->
                     val duration = player.duration.takeIf { it > 0L } ?: 0L
-                    player.seekTo((duration * value).toLong())
+                    viewModel.userSeek((duration * value).toLong())
                 },
                 onLeave = onLeave,
                 onAudioSelect = { showAudioDialog = true },

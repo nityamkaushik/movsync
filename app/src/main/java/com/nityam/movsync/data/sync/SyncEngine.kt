@@ -50,48 +50,7 @@ class SyncEngine(
             applyingRemoteCommand = false
         }
 
-        // 2. Broadcast Player Changes to Sync Queue
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (applyingRemoteCommand) return
-                if (!isHost && !allowControlsFlow.value) return
-                
-                scope.launch {
-                    firebaseSync.writeSyncCommand(
-                        roomCode,
-                        SyncState(
-                            command = if (isPlaying) "play" else "pause",
-                            position = player.currentPosition,
-                            speed = player.playbackParameters.speed,
-                            senderId = userId
-                        )
-                    )
-                }
-            }
-
-            override fun onPositionDiscontinuity(
-                oldPosition: Player.PositionInfo,
-                newPosition: Player.PositionInfo,
-                reason: Int
-            ) {
-                if (applyingRemoteCommand || reason != Player.DISCONTINUITY_REASON_SEEK) return
-                if (!isHost && !allowControlsFlow.value) return
-                
-                scope.launch {
-                    firebaseSync.writeSyncCommand(
-                        roomCode,
-                        SyncState(
-                            command = "seek",
-                            position = newPosition.positionMs,
-                            speed = player.playbackParameters.speed,
-                            senderId = userId
-                        )
-                    )
-                }
-            }
-        }
-        player.addListener(listener)
-        playerListener = listener
+        // 2. Explicit Broadcast function added instead of Player.Listener
 
         // 3. Heartbeat & Drift Correction
         if (isHost) {
@@ -137,5 +96,23 @@ class SyncEngine(
         playerListener?.let { player?.removeListener(it) }
         playerListener = null
         applyingRemoteCommand = false
+    }
+
+    suspend fun broadcastCommand(
+        roomCode: String,
+        userId: String,
+        command: String,
+        position: Long,
+        speed: Float
+    ) {
+        firebaseSync.writeSyncCommand(
+            roomCode,
+            SyncState(
+                command = command,
+                position = position,
+                speed = speed,
+                senderId = userId
+            )
+        )
     }
 }

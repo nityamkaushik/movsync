@@ -19,11 +19,21 @@ class LobbyViewModel(application: Application) : AndroidViewModel(application) {
     private val _started = MutableStateFlow(false)
     val started: StateFlow<Boolean> = _started
 
+    private val _allowControls = MutableStateFlow(false)
+    val allowControls: StateFlow<Boolean> = _allowControls
+
     fun observe(roomCode: String) {
         if (presenceJob != null) return
         presenceJob = viewModelScope.launch {
             launch { firebaseSync.presence(roomCode).collect { _participants.value = it } }
             launch { firebaseSync.observeRoomStarted(roomCode).collect { _started.value = it } }
+            launch { firebaseSync.observeAllowControls(roomCode).collect { _allowControls.value = it } }
+        }
+    }
+
+    fun toggleControls(roomCode: String, allow: Boolean) {
+        viewModelScope.launch {
+            firebaseSync.setAllowControls(roomCode, allow)
         }
     }
 

@@ -42,7 +42,7 @@ fun GradientButton(
         interactionSource = interactionSource,
         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
         contentPadding = PaddingValues(),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(24.dp),
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 54.dp)

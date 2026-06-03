@@ -20,6 +20,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import com.nityam.movsync.ui.components.RoomCodeDisplay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateRoomScreen(
+    videoUri: Uri,
     onBack: () -> Unit,
     onOpenLobby: (String, Uri) -> Unit,
     viewModel: CreateRoomViewModel = viewModel()
@@ -42,15 +44,9 @@ fun CreateRoomScreen(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (e: Exception) {}
-            viewModel.createFromFile(context, it)
+    LaunchedEffect(videoUri) {
+        if (state is CreateRoomUiState.SelectFile || state is CreateRoomUiState.Error) {
+            viewModel.createFromFile(context, videoUri)
         }
     }
 
@@ -76,14 +72,7 @@ fun CreateRoomScreen(
         ) {
             when (val current = state) {
                 CreateRoomUiState.SelectFile -> {
-                    GlassCard {
-                        Icon(Icons.Default.MovieCreation, contentDescription = null)
-                        Text("Choose the movie file you will watch")
-                    }
-                    GradientButton(
-                        text = "Pick Video",
-                        onClick = { picker.launch(arrayOf("video/*")) }
-                    )
+                    // Initializing state, wait for LaunchedEffect to trigger Hashing
                 }
                 is CreateRoomUiState.Hashing -> {
                     GlassCard {

@@ -37,7 +37,8 @@ class JoinRoomViewModel(application: Application) : AndroidViewModel(application
             runCatching {
                 val fingerprint = container.fileHasher.computeQuickFingerprint(context, uri)
                 val userId = container.authRepository.ensureSignedIn()
-                val displayName = container.authRepository.displayName.first()
+                val rawName = container.authRepository.displayName.first()
+                val displayName = rawName.ifBlank { "Movie Friend" }
                 when (val result = container.roomRepository.joinRoom(userId, displayName, code, fingerprint)) {
                     is JoinResult.Joined -> _state.value = _state.value.copy(
                         verifying = false,

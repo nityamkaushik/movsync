@@ -25,7 +25,8 @@ class CreateRoomViewModel(application: Application) : AndroidViewModel(applicati
             runCatching {
                 val fingerprint = container.fileHasher.computeQuickFingerprint(context, uri)
                 val userId = container.authRepository.ensureSignedIn()
-                val displayName = container.authRepository.displayName.first()
+                val rawName = container.authRepository.displayName.first()
+                val displayName = rawName.ifBlank { "Movie Friend" }
                 val room = container.roomRepository.createRoom(
                     hostId = userId,
                     displayName = displayName,
