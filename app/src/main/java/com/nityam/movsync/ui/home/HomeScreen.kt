@@ -108,7 +108,7 @@ fun HomeScreen(
                     IconButton(onClick = {
                         val sendIntent: Intent = Intent().apply {
                             action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, "Check out MovSync, an app to watch movies together, perfectly in sync! Download the latest release from: https://github.com/nityamkaushik/movsync/releases/latest")
+                            putExtra(Intent.EXTRA_TEXT, "Check out MovSync, an app to watch movies together, perfectly in sync! Download the latest release from: https://github.com/nityamkaushik/movsync/releases/latest/download/app-release.apk")
                             type = "text/plain"
                         }
                         val shareIntent = Intent.createChooser(sendIntent, null)
