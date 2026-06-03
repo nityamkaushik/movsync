@@ -17,7 +17,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.runtime.Composable
@@ -25,6 +31,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -43,6 +51,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.C
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import com.google.firebase.auth.FirebaseAuth
+import com.nityam.movsync.ui.chat.ChatUI
+import com.nityam.movsync.ui.chat.ChatViewModel
 import kotlinx.coroutines.delay
 
 @Composable
@@ -59,6 +70,20 @@ fun WatchScreen(
     val isInPipMode by rememberIsInPipMode()
     val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
     val allowControls by viewModel.allowControls.collectAsStateWithLifecycle()
+    
+    val chatViewModel: ChatViewModel = viewModel()
+    val chatMessages by chatViewModel.messages.collectAsStateWithLifecycle()
+    var showChat by remember { mutableStateOf(false) }
+    var lastReadMessageCount by remember { mutableIntStateOf(0) }
+    val currentUserId = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
+
+    LaunchedEffect(chatMessages.size, showChat) {
+        if (showChat) {
+            lastReadMessageCount = chatMessages.size
+        }
+    }
+    val hasUnread = chatMessages.size > lastReadMessageCount
+
     var showControls by remember { mutableStateOf(true) }
     LaunchedEffect(showControls) {
         if (showControls) {
@@ -103,6 +128,7 @@ fun WatchScreen(
 
     LaunchedEffect(roomCode, isHost, player) {
         viewModel.start(roomCode, isHost, player)
+        chatViewModel.start(roomCode)
     }
 
     LaunchedEffect(player) {
@@ -264,7 +290,9 @@ fun WatchScreen(
                 isPlaying = isPlaying,
                 position = progress,
                 allowControls = allowControls,
+                hasUnread = hasUnread,
                 onToggleControls = viewModel::toggleControls,
+                onToggleChat = { showChat = !showChat },
                 onPlayPause = {
                     if (isPlaying) viewModel.userPause() else viewModel.userPlay()
                 },
@@ -277,6 +305,36 @@ fun WatchScreen(
                 onEnterPip = { pipController.enterPip() },
                 onLeave = { confirmLeave = true },
                 modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (showChat && !isInPipMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.35f)
+                    .align(Alignment.CenterEnd)
+                    .imePadding()
+                    .background(Color.Black.copy(alpha = 0.75f))
+            ) {
+                ChatUI(
+                    messages = chatMessages,
+                    currentUserId = currentUserId,
+                    onSendMessage = { chatViewModel.sendMessage(it) },
+                    onClose = { showChat = false },
+                    backgroundColor = Color.Transparent,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        if (!showControls && hasUnread && !isInPipMode && !showChat) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(32.dp)
+                    .size(12.dp)
+                    .background(Color.Red, shape = CircleShape)
             )
         }
 
