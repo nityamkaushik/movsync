@@ -164,6 +164,32 @@ class FirebaseSync(
         roomRef(roomCode).child("heartbeat").removeEventListener(listener)
     }
 
+    suspend fun sendMessage(roomCode: String, message: com.nityam.movsync.data.model.ChatMessage) {
+        val payload = mapOf(
+            "senderId" to message.senderId,
+            "senderName" to message.senderName,
+            "message" to message.message,
+            "timestamp" to ServerValue.TIMESTAMP
+        )
+        roomRef(roomCode).child("chat").child(message.messageId).setValue(payload).await()
+    }
+
+    fun observeChatMessages(roomCode: String): Flow<List<com.nityam.movsync.data.model.ChatMessage>> = callbackFlow {
+        val ref = roomRef(roomCode).child("chat").orderByChild("timestamp")
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val messages = snapshot.children.mapNotNull { it.toChatMessageOrNull() }
+                trySend(messages)
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                close(error.toException())
+            }
+        }
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+
     private fun DataSnapshot.toSyncStateOrNull(): SyncState? {
         if (!exists()) return null
         return SyncState(
@@ -193,6 +219,17 @@ class FirebaseSync(
             isHost = child("isHost").getValue(Boolean::class.java) ?: false,
             online = child("online").getValue(Boolean::class.java) ?: false,
             verified = child("verified").getValue(Boolean::class.java) ?: false
+        )
+    }
+
+    private fun DataSnapshot.toChatMessageOrNull(): com.nityam.movsync.data.model.ChatMessage? {
+        if (!exists()) return null
+        return com.nityam.movsync.data.model.ChatMessage(
+            messageId = key.orEmpty(),
+            senderId = child("senderId").getValue(String::class.java).orEmpty(),
+            senderName = child("senderName").getValue(String::class.java).orEmpty(),
+            message = child("message").getValue(String::class.java).orEmpty(),
+            timestamp = child("timestamp").getValue(Long::class.java) ?: 0L
         )
     }
 }

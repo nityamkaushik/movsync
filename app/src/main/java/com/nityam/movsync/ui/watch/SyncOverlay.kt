@@ -12,11 +12,14 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
@@ -28,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.nityam.movsync.data.sync.SyncStatus
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SyncOverlay(
     roomCode: String,
@@ -36,7 +40,9 @@ fun SyncOverlay(
     isPlaying: Boolean,
     position: Float,
     allowControls: Boolean,
+    hasUnread: Boolean,
     onToggleControls: () -> Unit,
+    onToggleChat: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Float) -> Unit,
     onAudioSelect: () -> Unit,
@@ -55,7 +61,7 @@ fun SyncOverlay(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AssistChip(
+            androidx.compose.material3.AssistChip(
                 onClick = {},
                 label = {
                     Text(
@@ -68,7 +74,7 @@ fun SyncOverlay(
                 }
             )
             if (isHost) {
-                AssistChip(
+                androidx.compose.material3.AssistChip(
                     onClick = onToggleControls,
                     label = { Text(if (allowControls) "Controls: Shared" else "Controls: Host Only") },
                     leadingIcon = {
@@ -85,6 +91,17 @@ fun SyncOverlay(
             ) {
                 IconButton(onClick = onEnterPip) {
                     Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Enter PiP", tint = Color.White)
+                }
+                IconButton(onClick = onToggleChat) {
+                    BadgedBox(
+                        badge = {
+                            if (hasUnread) {
+                                Badge { Text("!") }
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.Chat, contentDescription = "Chat", tint = Color.White)
+                    }
                 }
                 IconButton(onClick = onLeave) {
                     Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)
