@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
@@ -60,7 +61,15 @@ fun LocalWatchScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val pipController = rememberPipController()
+    val isInPipMode by rememberIsInPipMode()
     var controlsVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            delay(3000)
+            controlsVisible = false
+        }
+    }
     var showAudioDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -107,10 +116,23 @@ fun LocalWatchScreen(
         }
     }
 
+    LaunchedEffect(isPlaying) {
+        pipController.updatePipParams(isPlaying)
+    }
+
+    PipActionReceiver {
+        if (player.isPlaying) player.pause() else player.play()
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
+                val isPip = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && activity?.isInPictureInPictureMode == true
+                if (!isPip) {
+                    player.pause()
+                }
+            } else if (event == Lifecycle.Event.ON_STOP) {
                 player.pause()
             }
         }
@@ -145,7 +167,11 @@ fun LocalWatchScreen(
     }
 
     BackHandler {
-        onLeave()
+        if (pipController.isPipSupported) {
+            pipController.enterPip()
+        } else {
+            onLeave()
+        }
     }
 
     Box(
@@ -215,7 +241,7 @@ fun LocalWatchScreen(
             }
     ) {
         VideoPlayerComposable(player = player, modifier = Modifier.fillMaxSize())
-        if (controlsVisible) {
+        if (controlsVisible && !isInPipMode) {
             LocalPlayerOverlay(
                 isPlaying = isPlaying,
                 position = progress,
@@ -229,11 +255,13 @@ fun LocalWatchScreen(
                 onLeave = onLeave,
                 onAudioSelect = { showAudioDialog = true },
                 onSubtitleSelect = { showSubtitleDialog = true },
+                onEnterPip = { pipController.enterPip() },
                 modifier = Modifier.fillMaxSize()
             )
         }
         
-        if (showVolumeIndicator) {
+        if (!isInPipMode) {
+            if (showVolumeIndicator) {
             com.nityam.movsync.ui.components.GestureIndicator(
                 icon = androidx.compose.material.icons.Icons.Default.VolumeUp,
                 value = currentVolume,
@@ -245,6 +273,7 @@ fun LocalWatchScreen(
                 value = currentBrightness,
                 modifier = Modifier.align(Alignment.Center)
             )
+        }
         }
     }
 
@@ -269,6 +298,7 @@ private fun LocalPlayerOverlay(
     onLeave: () -> Unit,
     onAudioSelect: () -> Unit,
     onSubtitleSelect: () -> Unit,
+    onEnterPip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier) {
@@ -281,8 +311,13 @@ private fun LocalPlayerOverlay(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onLeave) {
-                Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconButton(onClick = onEnterPip) {
+                    Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Enter PiP", tint = Color.White)
+                }
+                IconButton(onClick = onLeave) {
+                    Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)
+                }
             }
         }
         
@@ -291,8 +326,8 @@ private fun LocalPlayerOverlay(
             onClick = onPlayPause,
             modifier = Modifier
                 .align(Alignment.Center)
+                .size(80.dp)
                 .background(Color.Black.copy(alpha = 0.4f), shape = androidx.compose.foundation.shape.CircleShape)
-                .padding(16.dp)
         ) {
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,

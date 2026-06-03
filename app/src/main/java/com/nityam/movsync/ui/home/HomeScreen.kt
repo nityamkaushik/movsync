@@ -6,8 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.GroupAdd
@@ -67,14 +69,20 @@ fun HomeScreen(
     val updateAvailable by viewModel.updateAvailable.collectAsStateWithLifecycle()
 
     Scaffold { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // Header
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                    .padding(bottom = 60.dp), // Extra padding for footer
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -200,7 +208,7 @@ fun HomeScreen(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .aspectRatio(1.2f)
+                        .height(120.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp).fillMaxSize(),
@@ -225,7 +233,7 @@ fun HomeScreen(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .aspectRatio(1.2f)
+                        .height(120.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp).fillMaxSize(),
@@ -241,19 +249,24 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(Modifier.weight(1f))
-
+            }
+            
             // Footer
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Box(
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
             ) {
-                val versionStr = BuildConfig.VERSION_NAME
-                val displayVersion = if (versionStr.startsWith("v", ignoreCase = true)) versionStr else "v$versionStr"
-                Text("App Version $displayVersion", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Team Nityam", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val versionStr = BuildConfig.VERSION_NAME
+                    val displayVersion = if (versionStr.startsWith("v", ignoreCase = true)) versionStr else "v$versionStr"
+                    Text("App Version $displayVersion", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Team Nityam", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                }
             }
         }
     }
