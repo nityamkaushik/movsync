@@ -50,6 +50,7 @@ fun LobbyScreen(
     viewModel: LobbyViewModel = viewModel()
 ) {
     val participants by viewModel.participants.collectAsStateWithLifecycle()
+    val started by viewModel.started.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val pulse by rememberInfiniteTransition(label = "waitingPulse").animateFloat(
         initialValue = 0.45f,
@@ -60,6 +61,12 @@ fun LobbyScreen(
 
     LaunchedEffect(roomCode) {
         viewModel.observe(roomCode)
+    }
+
+    LaunchedEffect(started) {
+        if (started && !isHost) {
+            onStartWatching()
+        }
     }
 
     Scaffold(
@@ -109,7 +116,10 @@ fun LobbyScreen(
                 GradientButton(
                     text = "Start Watching",
                     enabled = participants.count { it.verified } >= 2,
-                    onClick = onStartWatching
+                    onClick = {
+                        viewModel.startRoom(roomCode)
+                        onStartWatching()
+                    }
                 )
             } else {
                 Row(
