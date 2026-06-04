@@ -32,7 +32,14 @@ let currentSubtitle = '';
 let libavWorker = null;
 let jassub = null;
 let audioCtx = null;
+let gainNode = null;
 let audioFileBlob = null;
+let activeAudioSource = 'default'; // 'default' | 'libav' | 'native'
+let currentAudioTrackId = -1;
+let activeSources = [];
+let nextExpectedPts = null;
+let nextExpectedCtxTime = null;
+let isDecodingAudio = false;
 
 export function renderWatch(container, { code, isHost }) {
   const isHostBool = isHost === 'true';
@@ -182,9 +189,21 @@ export function renderWatch(container, { code, isHost }) {
 async function init(container, roomCode, isHost) {
   audioFileBlob = window.__movsync_file;
   
-  if (audioFileBlob && audioFileBlob.name.toLowerCase().endsWith('.mkv')) {
+  if (audioFileBlob) {
     libavWorker = new Worker('/libav-worker.js');
+    libavWorker.onerror = (e) => {
+      console.error('libav worker error:', e);
+      const subHint = container.querySelector('#subtitleHint');
+      const audHint = container.querySelector('#audioHint');
+      if (subHint) subHint.textContent = `Worker Load Error: ${e.message || 'Failed to start worker'}`;
+      if (audHint) audHint.textContent = `Worker Load Error: ${e.message || 'Failed to start worker'}`;
+    };
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = audioCtx.createGain();
+    const volumeSlider = container.querySelector('#volumeSlider');
+    const initialVolume = volumeSlider ? (parseInt(volumeSlider.value) / 100) : 1.0;
+    gainNode.gain.setValueAtTime(initialVolume, audioCtx.currentTime);
+    gainNode.connect(audioCtx.destination);
     
     const canvas = container.querySelector('#jassubCanvas');
     if (window.JASSUB) {
@@ -209,6 +228,27 @@ async function init(container, roomCode, isHost) {
   videoElement.addEventListener('loadeddata', () => {
     setTimeout(detectTracks, 500);
   });
+
+  if (roomCode === 'local') {
+    // Hide or disable chat, sync chip, room code info, etc.
+    const syncChip = container.querySelector('#syncChip');
+    if (syncChip) syncChip.style.display = 'none';
+    const chatToggleBtn = container.querySelector('#chatToggleBtn');
+    if (chatToggleBtn) chatToggleBtn.style.display = 'none';
+    const toggleControlsBtn = container.querySelector('#toggleControlsBtn');
+    if (toggleControlsBtn) toggleControlsBtn.style.display = 'none';
+    
+    // Update progress bar + subtitles periodically
+    progressInterval = setInterval(() => {
+      updateProgress(container);
+      updateSubtitleOverlay(container);
+      checkAudioBufferQueue();
+    }, 200);
+
+    // Auto-play
+    videoElement.play().catch(() => {});
+    return;
+  }
 
   userId = await ensureSignedIn();
   roomData = await getRoomByCode(roomCode);
@@ -247,6 +287,7 @@ async function init(container, roomCode, isHost) {
   progressInterval = setInterval(() => {
     updateProgress(container);
     updateSubtitleOverlay(container);
+    checkAudioBufferQueue();
   }, 200);
 
   // Auto-play
@@ -256,6 +297,63 @@ async function init(container, roomCode, isHost) {
 function setupEventListeners(container, roomCode, isHost) {
   const overlay = container.querySelector('#watchOverlay');
   const watchScreen = container.querySelector('#watchScreen');
+
+  // Sync libav audio with video element events
+  videoElement.addEventListener('play', () => {
+    if (activeAudioSource === 'libav') {
+      if (audioCtx) audioCtx.resume();
+      stopAllAudioSources();
+      nextExpectedPts = null;
+      nextExpectedCtxTime = null;
+      isDecodingAudio = true;
+      libavWorker.postMessage({
+        type: 'start_decode',
+        file: audioFileBlob,
+        trackId: currentAudioTrackId,
+        timestamp: videoElement.currentTime
+      });
+    }
+  });
+
+  videoElement.addEventListener('pause', () => {
+    if (activeAudioSource === 'libav') {
+      stopAllAudioSources();
+      nextExpectedPts = null;
+      nextExpectedCtxTime = null;
+    }
+  });
+
+  videoElement.addEventListener('seeking', () => {
+    if (activeAudioSource === 'libav') {
+      stopAllAudioSources();
+      nextExpectedPts = null;
+      nextExpectedCtxTime = null;
+    }
+  });
+
+  videoElement.addEventListener('seeked', () => {
+    if (activeAudioSource === 'libav') {
+      stopAllAudioSources();
+      nextExpectedPts = null;
+      nextExpectedCtxTime = null;
+      isDecodingAudio = true;
+      libavWorker.postMessage({
+        type: 'start_decode',
+        file: audioFileBlob,
+        trackId: currentAudioTrackId,
+        timestamp: videoElement.currentTime
+      });
+    }
+  });
+
+  videoElement.addEventListener('ratechange', () => {
+    if (activeAudioSource === 'libav') {
+      const rate = videoElement.playbackRate;
+      activeSources.forEach(source => {
+        try { source.playbackRate.value = rate; } catch(_) {}
+      });
+    }
+  });
 
   // Click to toggle controls
   watchScreen.addEventListener('click', (e) => {
@@ -301,7 +399,9 @@ function setupEventListeners(container, roomCode, isHost) {
     if (!canControl(isHost)) return;
     const duration = videoElement.duration || 0;
     const position = (parseInt(seekBar.value) / 1000) * duration * 1000;
-    syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(position));
+    if (roomCode !== 'local') {
+      syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(position));
+    }
     videoElement.currentTime = position / 1000;
     resetControlsTimer(container);
   });
@@ -310,12 +410,23 @@ function setupEventListeners(container, roomCode, isHost) {
   const volumeSlider = container.querySelector('#volumeSlider');
   volumeSlider.addEventListener('input', (e) => {
     e.stopPropagation();
-    videoElement.volume = parseInt(volumeSlider.value) / 100;
+    const val = parseInt(volumeSlider.value) / 100;
+    videoElement.volume = val;
+    if (gainNode) {
+      gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
+    }
   });
 
   container.querySelector('#volumeBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     videoElement.muted = !videoElement.muted;
+    if (gainNode) {
+      if (videoElement.muted) {
+        gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      } else {
+        gainNode.gain.setValueAtTime(parseInt(volumeSlider.value) / 100, audioCtx.currentTime);
+      }
+    }
   });
 
   // Toggle controls (host only)
@@ -415,7 +526,7 @@ function setupEventListeners(container, roomCode, isHost) {
   });
   container.querySelector('#confirmLeaveBtn').addEventListener('click', async (e) => {
     e.stopPropagation();
-    if (roomData) {
+    if (roomData && roomCode !== 'local') {
       await leaveRoom(roomData.code, roomData.id, userId);
     }
     cleanup(roomCode);
@@ -436,7 +547,9 @@ function setupEventListeners(container, roomCode, isHost) {
         e.preventDefault();
         if (canControl(isHost)) {
           const newPos = Math.min((videoElement.currentTime + 10) * 1000, (videoElement.duration || 0) * 1000);
-          syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos));
+          if (roomCode !== 'local') {
+            syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos));
+          }
           videoElement.currentTime = newPos / 1000;
         }
         break;
@@ -444,7 +557,9 @@ function setupEventListeners(container, roomCode, isHost) {
         e.preventDefault();
         if (canControl(isHost)) {
           const newPos = Math.max((videoElement.currentTime - 10) * 1000, 0);
-          syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos));
+          if (roomCode !== 'local') {
+            syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos));
+          }
           videoElement.currentTime = newPos / 1000;
         }
         break;
@@ -486,12 +601,16 @@ function canControl(isHost) {
 function togglePlayPause(roomCode, isHost) {
   if (videoElement.paused) {
     videoElement.play().catch(() => {});
-    syncEngine.broadcastCommand(roomCode, userId, 'play',
-      Math.round(videoElement.currentTime * 1000), videoElement.playbackRate);
+    if (roomCode !== 'local') {
+      syncEngine.broadcastCommand(roomCode, userId, 'play',
+        Math.round(videoElement.currentTime * 1000), videoElement.playbackRate);
+    }
   } else {
     videoElement.pause();
-    syncEngine.broadcastCommand(roomCode, userId, 'pause',
-      Math.round(videoElement.currentTime * 1000), videoElement.playbackRate);
+    if (roomCode !== 'local') {
+      syncEngine.broadcastCommand(roomCode, userId, 'pause',
+        Math.round(videoElement.currentTime * 1000), videoElement.playbackRate);
+    }
   }
 }
 
@@ -623,6 +742,15 @@ function cleanup(roomCode) {
     videoElement.src = '';
     videoElement = null;
   }
+
+  stopAllAudioSources();
+  activeAudioSource = 'default';
+  currentAudioTrackId = -1;
+  activeSources = [];
+  nextExpectedPts = null;
+  nextExpectedCtxTime = null;
+  isDecodingAudio = false;
+  gainNode = null;
 
   currentMessages = [];
   showChat = false;
@@ -767,11 +895,11 @@ function detectEmbeddedTracks(container) {
   if (tracksDetected) return;
   tracksDetected = true;
   
-  if (libavWorker && audioFileBlob && audioFileBlob.name.toLowerCase().endsWith('.mkv')) {
+  if (libavWorker && audioFileBlob) {
     const subHint = container.querySelector('#subtitleHint');
     const audHint = container.querySelector('#audioHint');
-    if (subHint) subHint.textContent = 'Probing MKV tracks...';
-    if (audHint) audHint.textContent = 'Probing MKV tracks...';
+    if (subHint) subHint.textContent = 'Probing embedded tracks...';
+    if (audHint) audHint.textContent = 'Probing embedded tracks...';
     
     libavWorker.onmessage = (e) => handleWorkerMessage(e, container);
     libavWorker.postMessage({ type: 'probe', file: audioFileBlob });
@@ -781,30 +909,114 @@ function detectEmbeddedTracks(container) {
   }
 }
 
-let currentAudioNode = null;
-let audioStartTime = 0;
+function stopAllAudioSources() {
+  activeSources.forEach(source => {
+    try { source.stop(); } catch (_) {}
+  });
+  activeSources = [];
+}
+
+function playAudioChunk(pcm, channels, sampleRate, timestamp) {
+  if (!audioCtx || !videoElement) return;
+
+  const buffer = audioCtx.createBuffer(channels, pcm[0].length, sampleRate);
+  for (let c = 0; c < channels; c++) {
+    if (pcm[c]) {
+      buffer.copyToChannel(pcm[c], c);
+    }
+  }
+
+  const playbackRate = videoElement.playbackRate || 1.0;
+  let playTime;
+  let bufferOffset;
+
+  const timeDelta = timestamp - videoElement.currentTime;
+
+  // Check if this chunk is contiguous with the last scheduled chunk
+  const isContiguous = nextExpectedPts !== null && 
+                       Math.abs(timestamp - nextExpectedPts) < 0.3; // 300ms threshold
+
+  if (isContiguous) {
+    playTime = nextExpectedCtxTime;
+    bufferOffset = 0;
+  } else {
+    // Not contiguous (e.g. seek, play start) - calculate based on current time
+    if (timeDelta > 0) {
+      playTime = audioCtx.currentTime + timeDelta / playbackRate;
+      bufferOffset = 0;
+    } else {
+      playTime = audioCtx.currentTime;
+      bufferOffset = -timeDelta;
+    }
+  }
+
+  if (bufferOffset < buffer.duration) {
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = playbackRate;
+    source.connect(gainNode);
+    source.start(playTime, bufferOffset);
+
+    activeSources.push(source);
+
+    source.onended = () => {
+      const idx = activeSources.indexOf(source);
+      if (idx !== -1) activeSources.splice(idx, 1);
+    };
+
+    // Update expected timing
+    const playedDuration = (buffer.duration - bufferOffset) / playbackRate;
+    nextExpectedPts = timestamp + buffer.duration;
+    nextExpectedCtxTime = playTime + playedDuration;
+  }
+}
+
+function checkAudioBufferQueue() {
+  if (!audioCtx || !videoElement || videoElement.paused || isDecodingAudio || activeAudioSource !== 'libav') return;
+
+  const queuedDuration = (nextExpectedCtxTime !== null) ? (nextExpectedCtxTime - audioCtx.currentTime) : 0;
+
+  if (queuedDuration < 5.0) {
+    isDecodingAudio = true;
+    libavWorker.postMessage({
+      type: 'decode_more',
+      duration: 5.0
+    });
+  }
+}
 
 function handleWorkerMessage(e, container) {
-  const { type, tracks, pcm, channels, frames, sampleRate, text, error } = e.data;
+  const { type, tracks, pcm, channels, frames, sampleRate, text, timestamp, error } = e.data;
   if (type === 'probed') {
     populateLibavTracks(container, tracks);
   } else if (type === 'audio_chunk') {
-    if (!audioCtx) return;
-    const buffer = audioCtx.createBuffer(channels, frames, sampleRate);
-    buffer.copyToChannel(pcm, 0); // simplified for 1 channel
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioCtx.destination);
-    source.start(audioStartTime);
-    audioStartTime += buffer.duration;
+    isDecodingAudio = false;
+    playAudioChunk(pcm, channels, sampleRate, timestamp);
+    checkAudioBufferQueue();
+  } else if (type === 'audio_done') {
+    isDecodingAudio = false;
   } else if (type === 'sub_data') {
     if (jassub) jassub.setTrack(text);
   } else if (type === 'error') {
     console.error('libav error:', error);
     const subHint = container.querySelector('#subtitleHint');
     const audHint = container.querySelector('#audioHint');
-    if (subHint) subHint.textContent = `Error: ${error}`;
-    if (audHint) audHint.textContent = `Error: ${error}`;
+    const source = e.data.source;
+    
+    if (source === 'audio') {
+      isDecodingAudio = false;
+      if (audHint) audHint.textContent = `Codec Error: ${error}. Falling back to default audio.`;
+      const select = container.querySelector('#audioTrackSelect');
+      if (select && select.value !== 'default') {
+        select.value = 'default';
+        handleAudioTrackChange('default');
+      }
+    } else if (source === 'sub') {
+      if (subHint) subHint.textContent = `Subtitle Error: ${error}`;
+    } else {
+      if (subHint) subHint.textContent = `Error: ${error}`;
+      if (audHint) audHint.textContent = `Error: ${error}`;
+    }
   }
 }
 
@@ -1014,7 +1226,12 @@ function onNativeCueChange(container, trackIndex) {
 
 function handleAudioTrackChange(value) {
   if (value === 'default') {
+    activeAudioSource = 'default';
+    currentAudioTrackId = -1;
     videoElement.muted = false;
+    stopAllAudioSources();
+    nextExpectedPts = null;
+    nextExpectedCtxTime = null;
     if (audioCtx) {
       audioCtx.suspend();
     }
@@ -1022,19 +1239,35 @@ function handleAudioTrackChange(value) {
   }
   
   if (value.startsWith('libav-aud-')) {
-    videoElement.muted = true;
+    activeAudioSource = 'libav';
     const trackId = parseInt(value.replace('libav-aud-', ''));
+    currentAudioTrackId = trackId;
+    videoElement.muted = true;
     if (audioCtx) {
       audioCtx.resume();
-      audioStartTime = audioCtx.currentTime;
     }
-    if (libavWorker) libavWorker.postMessage({ type: 'decode', file: audioFileBlob, trackId });
+    stopAllAudioSources();
+    nextExpectedPts = null;
+    nextExpectedCtxTime = null;
+    
+    isDecodingAudio = true;
+    libavWorker.postMessage({
+      type: 'start_decode',
+      file: audioFileBlob,
+      trackId,
+      timestamp: videoElement.currentTime
+    });
     return;
   }
 
   if (!videoElement || !videoElement.audioTracks) return;
 
   if (value.startsWith('native-')) {
+    activeAudioSource = 'native';
+    currentAudioTrackId = -1;
+    stopAllAudioSources();
+    nextExpectedPts = null;
+    nextExpectedCtxTime = null;
     const idx = parseInt(value.replace('native-', ''));
     for (let i = 0; i < videoElement.audioTracks.length; i++) {
       videoElement.audioTracks[i].enabled = (i === idx);

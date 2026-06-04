@@ -17,11 +17,14 @@ const VERSION = '6.8.8.0';           // file names use 4-part version
 const NPM_VERSION = '6.8.8';         // npm/unpkg package uses 3-part version
 const BASE_URL = `https://unpkg.com/libav.js@${NPM_VERSION}/dist/`;
 
-// We only need the 'default' variant (supports MKV/H264/AAC/ASS)
+// Download both 'default' and 'webcodecs-avf' variants to support hardware decoding of AAC/AC3
 const FILES = [
   `libav-${VERSION}-default.wasm.js`,
   `libav-${VERSION}-default.wasm.wasm`,
   `libav-default.js`,
+  `libav-${VERSION}-webcodecs-avf.wasm.js`,
+  `libav-${VERSION}-webcodecs-avf.wasm.wasm`,
+  `libav-webcodecs-avf.js`,
 ];
 
 async function download(url, dest) {
