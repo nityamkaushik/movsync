@@ -13,12 +13,6 @@
       "headers": [
         { "key": "Content-Type", "value": "application/wasm" }
       ]
-    },
-    {
-      "source": "/libav-worker.js",
-      "headers": [
-        { "key": "Service-Worker-Allowed", "value": "/" }
-      ]
     }
   ]
 }
