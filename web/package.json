@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "setup:libav": "node setup-libav.js",
+    "dev": "node setup-libav.js && vite",
+    "build": "node setup-libav.js && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -13,6 +14,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
-    "firebase": "^12.14.0"
+    "firebase": "^12.14.0",
+    "libav.js": "^6.8.8"
   }
 }

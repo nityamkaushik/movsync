@@ -127,6 +127,7 @@ async function processFile(container, file) {
 
     // Store file for later use in watch screen
     window.__movsync_file = file;
+    window.__movsync_file = file;
     window.__movsync_videoUrl = URL.createObjectURL(file);
 
     // Navigate to lobby
