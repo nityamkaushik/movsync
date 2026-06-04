@@ -40,6 +40,9 @@ let activeSources = [];
 let nextExpectedPts = null;
 let nextExpectedCtxTime = null;
 let isDecodingAudio = false;
+let decodeWatchdog = null;
+let audioEmptyCount = 0;
+let boundResizeJassubCanvas = null;
 
 export function renderWatch(container, { code, isHost }) {
   const isHostBool = isHost === 'true';
@@ -201,22 +204,27 @@ async function init(container, roomCode, isHost) {
       if (subHint) subHint.textContent = `Worker Load Error: ${e.message || 'Failed to start worker'}`;
       if (audHint) audHint.textContent = `Worker Load Error: ${e.message || 'Failed to start worker'}`;
     };
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    gainNode = audioCtx.createGain();
-    const volumeSlider = container.querySelector('#volumeSlider');
-    const initialVolume = volumeSlider ? (parseInt(volumeSlider.value) / 100) : 1.0;
-    gainNode.gain.setValueAtTime(initialVolume, audioCtx.currentTime);
-    gainNode.connect(audioCtx.destination);
     
-    const canvas = container.querySelector('#jassubCanvas');
-    if (window.JASSUB) {
-      jassub = new window.JASSUB({
-        video: videoElement,
-        canvas: canvas,
-        workerUrl: 'https://cdn.jsdelivr.net/npm/jassub@1.0.8/dist/jassub-worker.min.js',
-        wasmUrl: 'https://cdn.jsdelivr.net/npm/jassub@1.0.8/dist/jassub-worker.wasm'
-      });
-    }
+    // NOTE: JASSUB is created lazily in the sub_data handler
+    // to avoid exit(4) crash from empty-track initialization before fonts load
+
+    // Set up canvas scaling to match JASSUB raster size to video element size
+    const resizeJassubCanvas = () => {
+      const cv = container.querySelector('#jassubCanvas');
+      if (!cv || !videoElement) return;
+      const rect = videoElement.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        cv.width = Math.round(rect.width);
+        cv.height = Math.round(rect.height);
+        if (jassub) jassub.resize(cv.width, cv.height);
+      }
+    };
+
+    boundResizeJassubCanvas = resizeJassubCanvas;
+    resizeJassubCanvas();
+    window.addEventListener('resize', resizeJassubCanvas);
+    videoElement.addEventListener('loadedmetadata', resizeJassubCanvas);
+    document.addEventListener('fullscreenchange', () => setTimeout(resizeJassubCanvas, 100));
   }
 
   // Detect all embedded tracks when metadata loads
@@ -305,16 +313,8 @@ function setupEventListeners(container, roomCode, isHost) {
   videoElement.addEventListener('play', () => {
     if (activeAudioSource === 'libav') {
       if (audioCtx) audioCtx.resume();
-      stopAllAudioSources();
-      nextExpectedPts = null;
-      nextExpectedCtxTime = null;
-      isDecodingAudio = true;
-      libavWorker.postMessage({
-        type: 'start_decode',
-        file: audioFileBlob,
-        trackId: currentAudioTrackId,
-        timestamp: videoElement.currentTime
-      });
+      // Don't reinitialize — just keep decoding. Request more audio if needed.
+      checkAudioBufferQueue();
     }
   });
 
@@ -336,16 +336,11 @@ function setupEventListeners(container, roomCode, isHost) {
 
   videoElement.addEventListener('seeked', () => {
     if (activeAudioSource === 'libav') {
-      stopAllAudioSources();
+      // Readahead files can't seek MKV (Cues at end of file).
+      // Just resume decoding from current position and request more data.
       nextExpectedPts = null;
       nextExpectedCtxTime = null;
-      isDecodingAudio = true;
-      libavWorker.postMessage({
-        type: 'start_decode',
-        file: audioFileBlob,
-        trackId: currentAudioTrackId,
-        timestamp: videoElement.currentTime
-      });
+      checkAudioBufferQueue();
     }
   });
 
@@ -512,7 +507,7 @@ function setupEventListeners(container, roomCode, isHost) {
   // Audio track selector
   container.querySelector('#audioTrackSelect')?.addEventListener('change', (e) => {
     e.stopPropagation();
-    handleAudioTrackChange(e.target.value);
+    handleAudioTrackChange(container, e.target.value);
   });
 
   // Chat toggle
@@ -756,6 +751,27 @@ function cleanup(roomCode) {
     videoElement = null;
   }
 
+  if (jassub) {
+    try { jassub.destroy(); } catch (_) {}
+    jassub = null;
+  }
+
+  if (boundResizeJassubCanvas) {
+    window.removeEventListener('resize', boundResizeJassubCanvas);
+    document.removeEventListener('fullscreenchange', boundResizeJassubCanvas);
+    boundResizeJassubCanvas = null;
+  }
+
+  if (audioCtx) {
+    try { audioCtx.close(); } catch (_) {}
+    audioCtx = null;
+  }
+
+  if (decodeWatchdog) {
+    clearTimeout(decodeWatchdog);
+    decodeWatchdog = null;
+  }
+
   stopAllAudioSources();
   activeAudioSource = 'default';
   currentAudioTrackId = -1;
@@ -763,6 +779,7 @@ function cleanup(roomCode) {
   nextExpectedPts = null;
   nextExpectedCtxTime = null;
   isDecodingAudio = false;
+  audioEmptyCount = 0;
   gainNode = null;
 
   currentMessages = [];
@@ -877,20 +894,25 @@ function updateSubtitleOverlay(container) {
     return;
   }
 
-  const currentMs = videoElement.currentTime * 1000;
+  const currentTime = videoElement.currentTime;
 
   let text = '';
   for (const cue of subtitleCues) {
-    if (currentMs >= cue.start && currentMs <= cue.end) {
+    // cue.start/end are in seconds (ASS-parsed) or milliseconds (SRT-parsed)
+    // Normalize: if cue.start > 10000, it's likely in milliseconds
+    const s = cue.start > 10000 ? cue.start / 1000 : cue.start;
+    const e = cue.end > 10000 ? cue.end / 1000 : cue.end;
+    if (currentTime >= s && currentTime <= e) {
       text = cue.text;
       break;
     }
-    if (cue.start > currentMs) break;
+    if (s > currentTime) break;
   }
 
   if (text !== currentSubtitle) {
     currentSubtitle = text;
-    overlay.innerHTML = text ? `<span class="subtitle-text">${escapeSubHtml(text)}</span>` : '';
+    // Text from our ASS parser may contain <br> for line breaks — render directly
+    overlay.innerHTML = text ? `<span class="subtitle-text">${text}</span>` : '';
   }
 }
 
@@ -929,6 +951,8 @@ function stopAllAudioSources() {
   activeSources = [];
 }
 
+const AUDIO_LOOKAHEAD = 0.1; // seconds — scheduling safety margin
+
 function playAudioChunk(pcm, channels, sampleRate, timestamp) {
   if (!audioCtx || !videoElement) return;
 
@@ -941,11 +965,8 @@ function playAudioChunk(pcm, channels, sampleRate, timestamp) {
 
   const playbackRate = videoElement.playbackRate || 1.0;
   let playTime;
-  let bufferOffset;
+  let bufferOffset = 0;
 
-  const timeDelta = timestamp - videoElement.currentTime;
-
-  // Check if this chunk is contiguous with the last scheduled chunk
   const isContiguous = nextExpectedPts !== null && 
                        Math.abs(timestamp - nextExpectedPts) < 0.3; // 300ms threshold
 
@@ -953,35 +974,42 @@ function playAudioChunk(pcm, channels, sampleRate, timestamp) {
     playTime = nextExpectedCtxTime;
     bufferOffset = 0;
   } else {
-    // Not contiguous (e.g. seek, play start) - calculate based on current time
-    if (timeDelta > 0) {
-      playTime = audioCtx.currentTime + timeDelta / playbackRate;
+    // First chunk after seek/start - anchor to video clock with lookahead safety margin
+    const timeDelta = timestamp - videoElement.currentTime;
+    const scheduleAt = audioCtx.currentTime + AUDIO_LOOKAHEAD + Math.max(0, timeDelta / playbackRate);
+    
+    if (timeDelta >= 0) {
+      playTime = scheduleAt;
       bufferOffset = 0;
     } else {
-      playTime = audioCtx.currentTime;
-      bufferOffset = -timeDelta;
+      const skipSeconds = -timeDelta;
+      bufferOffset = Math.min(skipSeconds, buffer.duration - 0.01);
+      playTime = audioCtx.currentTime + AUDIO_LOOKAHEAD;
     }
   }
 
-  if (bufferOffset < buffer.duration) {
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = playbackRate;
-    source.connect(gainNode);
-    source.start(playTime, bufferOffset);
+  if (bufferOffset >= buffer.duration) return;
 
-    activeSources.push(source);
+  console.log('[watch] scheduling chunk: playTime=', playTime, 
+              'bufferOffset=', bufferOffset, 'audioCtx.currentTime=', audioCtx.currentTime,
+              'video.currentTime=', videoElement.currentTime);
 
-    source.onended = () => {
-      const idx = activeSources.indexOf(source);
-      if (idx !== -1) activeSources.splice(idx, 1);
-    };
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = playbackRate;
+  source.connect(gainNode);
+  source.start(playTime, bufferOffset);
 
-    // Update expected timing
-    const playedDuration = (buffer.duration - bufferOffset) / playbackRate;
-    nextExpectedPts = timestamp + buffer.duration;
-    nextExpectedCtxTime = playTime + playedDuration;
-  }
+  activeSources.push(source);
+
+  source.onended = () => {
+    const idx = activeSources.indexOf(source);
+    if (idx !== -1) activeSources.splice(idx, 1);
+  };
+
+  const samplesPlayed = (buffer.duration - bufferOffset);
+  nextExpectedPts = timestamp + buffer.duration;
+  nextExpectedCtxTime = playTime + samplesPlayed / playbackRate;
 }
 
 function checkAudioBufferQueue() {
@@ -991,6 +1019,13 @@ function checkAudioBufferQueue() {
 
   if (queuedDuration < 5.0) {
     isDecodingAudio = true;
+
+    if (decodeWatchdog) clearTimeout(decodeWatchdog);
+    decodeWatchdog = setTimeout(() => {
+      console.warn('[watch] decode watchdog fired - unsticking isDecodingAudio');
+      isDecodingAudio = false;
+    }, 30000);
+
     libavWorker.postMessage({
       type: 'decode_more',
       duration: 5.0
@@ -1003,13 +1038,66 @@ function handleWorkerMessage(e, container) {
   if (type === 'probed') {
     populateLibavTracks(container, tracks);
   } else if (type === 'audio_chunk') {
+    if (decodeWatchdog) {
+      clearTimeout(decodeWatchdog);
+      decodeWatchdog = null;
+    }
     isDecodingAudio = false;
+    audioEmptyCount = 0; // reset on successful decode
+    console.log('[watch] audio_chunk received: timestamp=', timestamp, 
+                'channels=', channels, 'sampleRate=', sampleRate,
+                'samples=', pcm[0]?.length, 'audioCtx.state=', audioCtx?.state);
     playAudioChunk(pcm, channels, sampleRate, timestamp);
     checkAudioBufferQueue();
   } else if (type === 'audio_done') {
+    if (decodeWatchdog) {
+      clearTimeout(decodeWatchdog);
+      decodeWatchdog = null;
+    }
     isDecodingAudio = false;
+  } else if (type === 'audio_chunk_empty') {
+    if (decodeWatchdog) {
+      clearTimeout(decodeWatchdog);
+      decodeWatchdog = null;
+    }
+    isDecodingAudio = false;
+    // Track consecutive empty responses — stop after 3 to prevent spam
+    audioEmptyCount = (audioEmptyCount || 0) + 1;
+    if (audioEmptyCount <= 3) {
+      console.warn(`[watch] audio_chunk_empty (attempt ${audioEmptyCount}/3) — retrying...`);
+      checkAudioBufferQueue();
+    } else {
+      console.error('[watch] audio decoder producing no output after 3 attempts — stopping');
+      const audHint = container.querySelector('#audioHint');
+      if (audHint) audHint.textContent = 'Audio decode error: no output from decoder. Try a different track.';
+    }
   } else if (type === 'sub_data') {
-    if (jassub) jassub.setTrack(text);
+    console.log('[watch] sub_data received, text length=', text?.length);
+    // Parse ASS Dialogue lines into timed cues for HTML overlay rendering
+    const lines = text.split('\n');
+    subtitleCues = [];
+    for (const line of lines) {
+      const m = line.match(/^Dialogue:\s*\d+,(\d+:\d{2}:\d{2}\.\d{2}),(\d+:\d{2}:\d{2}\.\d{2}),.*?,.*?,\d+,\d+,\d+,.*?,(.+)$/);
+      if (m) {
+        const parseTime = (t) => {
+          const [h, mm, rest] = t.split(':');
+          const [s, cs] = rest.split('.');
+          return parseInt(h) * 3600 + parseInt(mm) * 60 + parseInt(s) + parseInt(cs) / 100;
+        };
+        const start = parseTime(m[1]);
+        const end = parseTime(m[2]);
+        const txt = m[3].replace(/\\N/g, '<br>').replace(/\{[^}]*\}/g, '');
+        subtitleCues.push({ start, end, text: txt });
+      }
+    }
+    subtitlesEnabled = true;
+    activeSubSource = 'libav';
+    console.log(`[watch] Parsed ${subtitleCues.length} subtitle cues`);
+    const btn = container.querySelector('#subtitleToggleBtn');
+    if (btn) btn.style.opacity = '1';
+    const hint = container.querySelector('#subtitleHint');
+    if (hint) hint.textContent = `${subtitleCues.length} subtitle cues loaded`;
+  
   } else if (type === 'error') {
     console.error('libav error:', error);
     const subHint = container.querySelector('#subtitleHint');
@@ -1017,12 +1105,16 @@ function handleWorkerMessage(e, container) {
     const source = e.data.source;
     
     if (source === 'audio') {
+      if (decodeWatchdog) {
+        clearTimeout(decodeWatchdog);
+        decodeWatchdog = null;
+      }
       isDecodingAudio = false;
       if (audHint) audHint.textContent = `Codec Error: ${error}. Falling back to default audio.`;
       const select = container.querySelector('#audioTrackSelect');
       if (select && select.value !== 'default') {
         select.value = 'default';
-        handleAudioTrackChange('default');
+        handleAudioTrackChange(container, 'default');
       }
     } else if (source === 'sub') {
       if (subHint) subHint.textContent = `Subtitle Error: ${error}`;
@@ -1237,7 +1329,17 @@ function onNativeCueChange(container, trackIndex) {
   }
 }
 
-function handleAudioTrackChange(value) {
+function ensureAudioContext(container) {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  const volumeSlider = container.querySelector('#volumeSlider');
+  const initialVolume = volumeSlider ? (parseInt(volumeSlider.value) / 100) : 1.0;
+  gainNode.gain.setValueAtTime(initialVolume, audioCtx.currentTime);
+  gainNode.connect(audioCtx.destination);
+}
+
+function handleAudioTrackChange(container, value) {
   if (value === 'default') {
     activeAudioSource = 'default';
     currentAudioTrackId = -1;
@@ -1252,6 +1354,7 @@ function handleAudioTrackChange(value) {
   }
   
   if (value.startsWith('libav-aud-')) {
+    ensureAudioContext(container);
     activeAudioSource = 'libav';
     const trackId = parseInt(value.replace('libav-aud-', ''));
     currentAudioTrackId = trackId;
@@ -1262,6 +1365,7 @@ function handleAudioTrackChange(value) {
     stopAllAudioSources();
     nextExpectedPts = null;
     nextExpectedCtxTime = null;
+    audioEmptyCount = 0;
     
     isDecodingAudio = true;
     libavWorker.postMessage({
