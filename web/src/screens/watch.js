@@ -57,6 +57,9 @@ export function renderWatch(container, { code, isHost }) {
       <div class="subtitle-overlay" id="subtitleOverlay"></div>
       <canvas id="jassubCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></canvas>
 
+      <!-- Unread Indicator (when controls hidden) -->
+      <div class="video-unread-dot" id="videoUnreadDot" style="display:none;"></div>
+
       <!-- Controls Overlay -->
       <div class="watch-overlay" id="watchOverlay">
         <!-- Top Bar -->
@@ -229,7 +232,7 @@ async function init(container, roomCode, isHost) {
       renderWatchChat(container, roomCode);
       lastReadCount = messages.length;
     }
-    updateChatBadge(container);
+    updateChatIndicators(container);
   });
 
   // Listen to allow controls
@@ -397,8 +400,8 @@ function setupEventListeners(container, roomCode, isHost) {
     if (showChat) {
       lastReadCount = currentMessages.length;
       renderWatchChat(container, roomCode);
-      updateChatBadge(container);
     }
+    updateChatIndicators(container);
   });
 
   // Leave
@@ -496,6 +499,7 @@ function toggleControls(container) {
   showControls = !showControls;
   const overlay = container.querySelector('#watchOverlay');
   overlay.classList.toggle('hidden', !showControls);
+  updateChatIndicators(container);
   if (showControls) resetControlsTimer(container);
 }
 
@@ -506,6 +510,7 @@ function resetControlsTimer(container) {
     showControls = false;
     const overlay = container.querySelector('#watchOverlay');
     if (overlay) overlay.classList.add('hidden');
+    updateChatIndicators(container);
   }, 3000);
 }
 
@@ -563,11 +568,17 @@ function updateControlsState(container, isHost) {
   }
 }
 
-function updateChatBadge(container) {
+function updateChatIndicators(container) {
   const badge = container.querySelector('#chatBadge');
-  if (!badge) return;
+  const dot = container.querySelector('#videoUnreadDot');
   const hasUnread = currentMessages.length > lastReadCount;
-  badge.style.display = hasUnread && !showChat ? 'flex' : 'none';
+  
+  if (badge) {
+    badge.style.display = hasUnread && !showChat ? 'flex' : 'none';
+  }
+  if (dot) {
+    dot.style.display = (!showControls && hasUnread && !showChat) ? 'block' : 'none';
+  }
 }
 
 function renderWatchChat(container, roomCode) {
