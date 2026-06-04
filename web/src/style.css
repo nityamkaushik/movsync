@@ -1208,6 +1208,8 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
   right: 16px;
   z-index: 30;
   animation: fadeInUp 0.2s var(--ease-smooth);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
 }
 
 .settings-card {
