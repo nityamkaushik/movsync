@@ -1,18 +1,18 @@
-// Load the libav-webcodecs-avf wrapper
-importScripts('/libav/libav-webcodecs-avf.js');
+// Load the libav-default wrapper
+importScripts('/libav/libav-default.js');
 
 let libav = null;
 
 async function initLibav() {
     if (libav) return;
-    // Initialize LibAV using the webcodecs-avf variant to support browser hardware/software decoders (AAC/AC3)
+    // Initialize LibAV using the default variant to support software decoders (AAC/AC3) in WASM
     libav = await LibAV.LibAV({
-        variant: 'webcodecs-avf',
+        variant: 'default',
         base: '/libav',
-        wasmurl: '/libav/libav-6.8.8.0-webcodecs-avf.wasm.wasm',
+        wasmurl: '/libav/libav-6.8.8.0-default.wasm.wasm',
         noworker: true
     });
-    console.log('[libavWorker] LibAV WASM ready (webcodecs-avf)');
+    console.log('[libavWorker] LibAV WASM ready (default)');
 }
 
 // ─── Block Reader Device Management ───────────────────────────────────────────
@@ -149,11 +149,43 @@ async function initAudioDecoder(file, trackId) {
     
     await cleanupAudioDecoder();
     
+    // First pass: open file to read stream info (codec params, etc.)
     const devName = await setupBlockDevice(file, 'audio');
     const [fmtCtx, streams] = await libav.ff_init_demuxer_file(devName);
     
-    // Set discard flag on other streams to speed up packet reading and decoding
-    for (const s of streams) {
+    const stream = streams.find(s => s.index === trackId);
+    if (!stream) {
+        throw new Error(`No stream with index ${trackId}`);
+    }
+    
+    // Save stream info we need for codec init
+    const codecId = stream.codec_id;
+    const codecpar = stream.codecpar;
+    const streamInfo = { ...stream };
+    
+    // Read extradata before closing (needed for WebCodecs config)
+    const sampleRate = await libav.AVCodecParameters_sample_rate(codecpar);
+    let codecChannels = await libav.AVCodecParameters_channels(codecpar);
+    if (!codecChannels) {
+        try { codecChannels = await libav.AVCodecParameters_ch_layout_nb_channels(codecpar); } catch(_) {}
+    }
+    let extradata = null;
+    const extradataPtr = await libav.AVCodecParameters_extradata(codecpar);
+    const extradataSize = await libav.AVCodecParameters_extradata_size(codecpar);
+    if (extradataPtr && extradataSize > 0) {
+        extradata = new Uint8Array(libav.HEAPU8.slice(extradataPtr, extradataPtr + extradataSize));
+    }
+    
+    // Close the first demuxer — we'll re-open fresh for reading
+    await libav.avformat_close_input_js(fmtCtx);
+    try { await libav.unlinkreadaheadfile(devName); } catch(_) {}
+    
+    // Second pass: re-open with fresh readahead for actual packet reading
+    const devName2 = await setupBlockDevice(file, 'audio');
+    const [fmtCtx2, streams2] = await libav.ff_init_demuxer_file(devName2);
+    
+    // Set discard flag on other streams to speed up packet reading
+    for (const s of streams2) {
         if (s.index === trackId) {
             await libav.AVStream_discard_s(s.ptr, libav.AVDISCARD_NONE);
         } else {
@@ -161,13 +193,9 @@ async function initAudioDecoder(file, trackId) {
         }
     }
     
-    const stream = streams.find(s => s.index === trackId);
-    if (!stream) {
-        throw new Error(`No stream with index ${trackId}`);
-    }
-    
-    decodeFmtCtx = fmtCtx;
-    decodeStream = stream;
+    const stream2 = streams2.find(s => s.index === trackId);
+    decodeFmtCtx = fmtCtx2;
+    decodeStream = stream2;
     decodeTrackId = trackId;
     
     // Allocate packet for demuxing
@@ -178,13 +206,14 @@ async function initAudioDecoder(file, trackId) {
 
     let codecName = 'unknown';
     try {
-        codecName = await libav.avcodec_get_name(stream.codec_id);
+        codecName = await libav.avcodec_get_name(codecId);
     } catch (_) {}
 
     useWebCodecs = false;
     let initWasmError = null;
     try {
-        const [, codecCtx, pkt, frame] = await libav.ff_init_decoder(stream.codec_id, stream.codecpar);
+        // Use stream2's codecpar (from fresh demuxer) for WASM decoder init
+        const [, codecCtx, pkt, frame] = await libav.ff_init_decoder(stream2.codec_id, stream2.codecpar);
         await libav.av_packet_free_js(decodePkt);
         decodePkt = pkt;
         decodeCodecCtx = codecCtx;
@@ -207,30 +236,14 @@ async function initAudioDecoder(file, trackId) {
         };
         const targetCodec = webcodecsCodecMap[codecName.toLowerCase()] || codecName.toLowerCase();
         
-        const sampleRate = await libav.AVCodecParameters_sample_rate(stream.codecpar);
-        let channels = await libav.AVCodecParameters_channels(stream.codecpar);
-        if (!channels) {
-            try {
-                channels = await libav.AVCodecParameters_ch_layout_nb_channels(stream.codecpar);
-            } catch (_) {}
-        }
-        
-        let extradata = null;
-        const extradataPtr = await libav.AVCodecParameters_extradata(stream.codecpar);
-        const extradataSize = await libav.AVCodecParameters_extradata_size(stream.codecpar);
-        if (extradataPtr && extradataSize > 0) {
-            extradata = libav.HEAPU8.slice(extradataPtr, extradataPtr + extradataSize);
-        }
-        
+        // Use saved values from first pass (before closing)
         const config = {
             codec: targetCodec,
             sampleRate: sampleRate || 48000,
-            numberOfChannels: channels || 2
+            numberOfChannels: codecChannels || 2
         };
         if (extradata) {
-            const desc = new Uint8Array(extradata.length);
-            desc.set(extradata);
-            config.description = desc;
+            config.description = extradata; // already a Uint8Array copy
         }
         
         let isSupported = false;
@@ -250,15 +263,20 @@ async function initAudioDecoder(file, trackId) {
         nativeDecoderConfig = config;
         nativeDecoder = new AudioDecoder({
             output: (audioData) => {
-                const pcm = getAudioDataPCM(audioData);
-                nativeDecodedChunks.push({
-                    pcm,
-                    frames: audioData.numberOfFrames,
-                    sampleRate: audioData.sampleRate,
-                    channels: audioData.numberOfChannels,
-                    timestamp: audioData.timestamp / 1000000.0
-                });
-                audioData.close();
+                try {
+                    const pcm = getAudioDataPCM(audioData);
+                    nativeDecodedChunks.push({
+                        pcm,
+                        frames: audioData.numberOfFrames,
+                        sampleRate: audioData.sampleRate,
+                        channels: audioData.numberOfChannels,
+                        timestamp: audioData.timestamp / 1000000.0
+                    });
+                    audioData.close();
+                } catch (e) {
+                    console.error('[libavWorker] WebCodecs output callback ERROR:', e);
+                    try { audioData.close(); } catch(_) {}
+                }
             },
             error: (err) => {
                 console.error('[libavWorker] Native AudioDecoder error:', err);
@@ -268,8 +286,14 @@ async function initAudioDecoder(file, trackId) {
         
         nativeDecoder.configure(config);
         useWebCodecs = true;
-        console.log(`[libavWorker] WebCodecs AudioDecoder initialized successfully for codec ${targetCodec}`);
+        console.log(`[libavWorker] WebCodecs AudioDecoder initialized for ${targetCodec}. config:`, JSON.stringify({
+            codec: config.codec, sampleRate: config.sampleRate, channels: config.numberOfChannels,
+            descriptionBytes: config.description ? config.description.length : 0,
+            descriptionHex: config.description ? Array.from(config.description.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'none'
+        }));
     }
+    console.log('[libavWorker] initAudioDecoder complete. useWebCodecs=', useWebCodecs, 
+                'nativeDecoder=', !!nativeDecoder, 'decodeCodecCtx=', !!decodeCodecCtx);
 }
 
 async function cleanupAudioDecoder() {
@@ -299,6 +323,10 @@ async function cleanupAudioDecoder() {
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 self.onmessage = async (e) => {
+    await handleMessage(e);
+};
+
+async function handleMessage(e) {
     const { type, file, trackId, timestamp, duration } = e.data;
     console.log(`[libavWorker] Worker got message: ${type}`);
 
@@ -337,8 +365,23 @@ self.onmessage = async (e) => {
                 den = decodeStream.time_base_den;
             }
             const ts = Math.round((timestamp * den) / num);
-            const AVSEEK_FLAG_BACKWARD = 1;
-            await libav.av_seek_frame(decodeFmtCtx, decodeTrackId, ts, AVSEEK_FLAG_BACKWARD);
+            console.log('[libavWorker] Seeking: timestamp=', timestamp, 'ts=', ts, 'num=', num, 'den=', den, 'trackId=', decodeTrackId);
+            
+            // Use avformat_seek_file for more robust seeking
+            try {
+                const seekRet = await libav.avformat_seek_file(decodeFmtCtx, decodeTrackId, 0, ts, ts, 0);
+                console.log('[libavWorker] avformat_seek_file returned:', seekRet);
+            } catch(seekErr) {
+                console.warn('[libavWorker] avformat_seek_file failed, trying av_seek_frame:', seekErr);
+                try {
+                    await libav.av_seek_frame(decodeFmtCtx, decodeTrackId, ts, 1 /* AVSEEK_FLAG_BACKWARD */);
+                } catch(seekErr2) {
+                    console.warn('[libavWorker] av_seek_frame also failed, trying seek to 0:', seekErr2);
+                    try {
+                        await libav.av_seek_frame(decodeFmtCtx, -1, 0, 1);
+                    } catch(_) {}
+                }
+            }
             
             if (decodeCodecCtx) {
                 await libav.avcodec_flush_buffers(decodeCodecCtx);
@@ -366,7 +409,7 @@ self.onmessage = async (e) => {
             self.postMessage({ type: 'error', error: `Subtitle extraction failed: ${err.message || err}`, source: 'sub' });
         }
     }
-};
+}
 
 // ─── Metadata Helpers ────────────────────────────────────────────────────────
 function readString(ptr) {
@@ -461,7 +504,10 @@ async function probeFile(file) {
 // ─── Decode audio chunk to PCM ────────────────────────────────────────────────
 async function decodeAudioChunk(targetDuration) {
     if (!decodeFmtCtx) return;
-    
+
+    console.log('[libavWorker] decodeAudioChunk called. useWebCodecs=', useWebCodecs,
+                'targetDuration=', targetDuration, 'nativeDecoder state=', nativeDecoder?.state);
+
     let samplesDecoded = 0;
     let firstPts = null;
     let chunks = [];
@@ -469,80 +515,96 @@ async function decodeAudioChunk(targetDuration) {
     let channels = 2;
     let eof = false;
 
-    // Read and decode until we have targetDuration seconds of audio
-    while (!eof && (samplesDecoded / sampleRate) < targetDuration) {
-        const [ret, pkts] = await libav.ff_read_frame_multi(decodeFmtCtx, decodePkt, { limit: 256 });
+    // --- Determine time_base once, outside the loop ---
+    let num = 1, den = 1000;
+    if (decodeStream.time_base) {
+        if (Array.isArray(decodeStream.time_base)) {
+            num = decodeStream.time_base[0];
+            den = decodeStream.time_base[1];
+        } else if (typeof decodeStream.time_base === 'object') {
+            num = decodeStream.time_base.num || 1;
+            den = decodeStream.time_base.den || 1000;
+        }
+    } else if (decodeStream.time_base_num && decodeStream.time_base_den) {
+        num = decodeStream.time_base_num;
+        den = decodeStream.time_base_den;
+    }
+
+    let readIterations = 0;
+    const MAX_READ_ITERATIONS = 500;
+    while (!eof && (samplesDecoded / sampleRate) < targetDuration && readIterations < MAX_READ_ITERATIONS) {
+        readIterations++;
+        const [ret, pkts] = await libav.ff_read_frame_multi(decodeFmtCtx, decodePkt, { limit: 2048 });
         if (ret === libav.AVERROR_EOF) eof = true;
 
         const myPkts = pkts[decodeTrackId] || [];
+        if (readIterations <= 3) {
+            console.log('[libavWorker] iter', readIterations, 'pktStreams=', Object.keys(pkts).join(','),
+                        'myPkts=', myPkts.length, 'eof=', eof);
+        }
         if (myPkts.length === 0) {
             if (eof) break;
             continue;
         }
 
-        // Keep track of the first packet's pts in this chunk
         if (firstPts === null) {
             const validPkt = myPkts.find(p => p.pts !== undefined && p.pts !== null);
-            if (validPkt) {
-                firstPts = validPkt.pts;
-            }
+            if (validPkt) firstPts = validPkt.pts;
         }
 
         if (useWebCodecs) {
-            let num = 1, den = 1000;
-            if (decodeStream.time_base) {
-                if (Array.isArray(decodeStream.time_base)) {
-                    num = decodeStream.time_base[0];
-                    den = decodeStream.time_base[1];
-                } else if (typeof decodeStream.time_base === 'object') {
-                    num = decodeStream.time_base.num || 1;
-                    den = decodeStream.time_base.den || 1000;
-                }
-            } else if (decodeStream.time_base_num && decodeStream.time_base_den) {
-                num = decodeStream.time_base_num;
-                den = decodeStream.time_base_den;
-            }
-
+            let decodeCount = 0;
             for (const p of myPkts) {
                 if (!p.data) continue;
+                // CRITICAL: copy packet data — p.data may be a WASM heap view
+                // that gets invalidated on the next ff_read_frame_multi call
+                const dataCopy = new Uint8Array(p.data.length);
+                dataCopy.set(p.data);
+
                 const tsUs = Math.round((p.pts * 1000000 * num) / den);
-                const durationUs = Math.round((p.duration * 1000000 * num) / den);
-                
-                const chunk = new EncodedAudioChunk({
-                    type: (p.flags & 1) ? 'key' : 'delta',
+                const durationUs = p.duration > 0
+                    ? Math.round((p.duration * 1000000 * num) / den)
+                    : 23220; // ~1024 samples @ 44100 Hz fallback
+
+                nativeDecoder.decode(new EncodedAudioChunk({
+                    type: 'key',
                     timestamp: tsUs,
                     duration: durationUs,
-                    data: p.data
-                });
-                nativeDecoder.decode(chunk);
+                    data: dataCopy
+                }));
+                decodeCount++;
             }
-            
-            await nativeDecoder.flush();
-            
-            if (nativeDecoderError) {
-                throw nativeDecoderError;
+
+            // CRITICAL: yield to the event loop so WebCodecs output callbacks can fire
+            await new Promise(r => setTimeout(r, 0));
+
+            if (readIterations <= 3) {
+                console.log('[libavWorker] WebCodecs: fed', decodeCount, 'chunks, queueSize=', nativeDecoder.decodeQueueSize,
+                            'state=', nativeDecoder.state, 'outputSoFar=', nativeDecodedChunks.length,
+                            'error=', nativeDecoderError?.message || 'none');
             }
-            
-            for (const chunk of nativeDecodedChunks) {
-                sampleRate = chunk.sampleRate;
-                channels = chunk.channels;
-                samplesDecoded += chunk.frames;
-                chunks.push(chunk);
+
+            // Collect whatever has been asynchronously emitted
+            for (const decoded of nativeDecodedChunks) {
+                sampleRate = decoded.sampleRate;
+                channels = decoded.channels;
+                samplesDecoded += decoded.frames;
+                chunks.push(decoded);
             }
             nativeDecodedChunks = [];
+
         } else {
             const frames = await libav.ff_decode_multi(decodeCodecCtx, decodePkt, decodeFrame, myPkts, eof);
             for (const f of frames) {
                 if (!f || !f.data || f.data.length === 0) continue;
-                
+
                 sampleRate = f.sample_rate || sampleRate;
                 const nbChannels = f.channels || (Array.isArray(f.data) ? f.data.length : 1);
                 channels = nbChannels;
                 samplesDecoded += f.nb_samples;
-                
+
                 let copiedData = [];
                 if (Array.isArray(f.data)) {
-                    // Planar audio format
                     copiedData = f.data.map(ch => {
                         if (ch instanceof Float32Array) return new Float32Array(ch);
                         const floatCh = new Float32Array(ch.length);
@@ -558,42 +620,45 @@ async function decodeAudioChunk(targetDuration) {
                         return floatCh;
                     });
                 } else {
-                    // Interleaved (non-planar) audio format
                     const interleaved = f.data;
                     const nbSamples = f.nb_samples;
                     for (let c = 0; c < nbChannels; c++) {
                         const floatCh = new Float32Array(nbSamples);
                         if (interleaved instanceof Float32Array) {
-                            for (let i = 0; i < nbSamples; i++) {
-                                floatCh[i] = interleaved[i * nbChannels + c];
-                            }
+                            for (let i = 0; i < nbSamples; i++) floatCh[i] = interleaved[i * nbChannels + c];
                         } else if (interleaved instanceof Int16Array) {
-                            for (let i = 0; i < nbSamples; i++) {
-                                floatCh[i] = interleaved[i * nbChannels + c] / 32768.0;
-                            }
+                            for (let i = 0; i < nbSamples; i++) floatCh[i] = interleaved[i * nbChannels + c] / 32768.0;
                         } else if (interleaved instanceof Int32Array) {
-                            for (let i = 0; i < nbSamples; i++) {
-                                floatCh[i] = interleaved[i * nbChannels + c] / 2147483648.0;
-                            }
+                            for (let i = 0; i < nbSamples; i++) floatCh[i] = interleaved[i * nbChannels + c] / 2147483648.0;
                         } else if (interleaved instanceof Uint8Array) {
-                            for (let i = 0; i < nbSamples; i++) {
-                                floatCh[i] = (interleaved[i * nbChannels + c] / 128.0) - 1.0;
-                            }
+                            for (let i = 0; i < nbSamples; i++) floatCh[i] = (interleaved[i * nbChannels + c] / 128.0) - 1.0;
                         } else {
-                            for (let i = 0; i < nbSamples; i++) {
-                                floatCh[i] = interleaved[i * nbChannels + c];
-                            }
+                            for (let i = 0; i < nbSamples; i++) floatCh[i] = interleaved[i * nbChannels + c];
                         }
                         copiedData.push(floatCh);
                     }
                 }
-                
-                chunks.push({
-                    pcm: copiedData,
-                    frames: f.nb_samples
-                });
+                chunks.push({ pcm: copiedData, frames: f.nb_samples });
             }
         }
+    }
+
+    // ← FIXED: flush ONCE here, after the loop, to drain the decoder
+    if (useWebCodecs && nativeDecoder) {
+        await nativeDecoder.flush();
+        console.log('[libavWorker] flush complete. nativeDecodedChunks.length=', nativeDecodedChunks.length,
+                    'samplesDecoded=', samplesDecoded, 'chunks.length=', chunks.length);
+        if (nativeDecoderError) throw nativeDecoderError;
+
+        for (const decoded of nativeDecodedChunks) {
+            sampleRate = decoded.sampleRate;
+            channels = decoded.channels;
+            samplesDecoded += decoded.frames;
+            chunks.push(decoded);
+        }
+        nativeDecodedChunks = [];
+        console.log('[libavWorker] after post-loop drain. chunks.length=', chunks.length,
+                    'samplesDecoded=', samplesDecoded, 'sampleRate=', sampleRate);
     }
 
     if (chunks.length > 0) {
@@ -611,22 +676,12 @@ async function decodeAudioChunk(targetDuration) {
             mergedPcm.push(channelData);
         }
 
-        // Convert firstPts to seconds
+        // Use WebCodecs timestamp from first decoded chunk (already in seconds)
+        // For WASM path, convert firstPts via time_base
         let timestamp = 0;
-        if (firstPts !== null) {
-            let num = 1, den = 1000;
-            if (decodeStream.time_base) {
-                if (Array.isArray(decodeStream.time_base)) {
-                    num = decodeStream.time_base[0];
-                    den = decodeStream.time_base[1];
-                } else if (typeof decodeStream.time_base === 'object') {
-                    num = decodeStream.time_base.num || 1;
-                    den = decodeStream.time_base.den || 1000;
-                }
-            } else if (decodeStream.time_base_num && decodeStream.time_base_den) {
-                num = decodeStream.time_base_num;
-                den = decodeStream.time_base_den;
-            }
+        if (useWebCodecs && chunks.length > 0 && chunks[0].timestamp !== undefined) {
+            timestamp = chunks[0].timestamp; // already seconds from AudioData.timestamp/1e6
+        } else if (firstPts !== null) {
             timestamp = (firstPts * num) / den;
         }
 
@@ -638,12 +693,16 @@ async function decodeAudioChunk(targetDuration) {
             sampleRate,
             timestamp
         }, mergedPcm.map(ch => ch.buffer));
+    } else if (!eof) {
+        // No chunks decoded — tell main thread so it doesn't stay stuck
+        self.postMessage({ type: 'audio_chunk_empty' });
     }
 
     if (eof) {
         self.postMessage({ type: 'audio_done' });
     }
 }
+
 
 // ─── Extract subtitle track ───────────────────────────────────────────────────
 function formatAssTime(ms) {
@@ -698,16 +757,52 @@ async function extractSubtitleTrack(file, trackId) {
     const pkt = await libav.av_packet_alloc();
     if (!pkt) throw new Error('Could not allocate packet for subtitle extraction');
 
-    const assHeader = [
-        '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 640', 'PlayResY: 360',
-        '[V4+ Styles]',
-        'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-        'Style: Default,Arial,24,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1',
-        '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text', ''
-    ].join('\n');
+    const isAss = codecName === 'ass' || codecName === 'ssa';
+    const isSrt = codecName === 'subrip' || codecName === 'srt';
+
+    // ── Build ASS header ──
+    // For ASS/SSA tracks, the codec extradata contains the real header (styles, fonts, resolution).
+    // For SRT/other, use a generic fallback header.
+    let assHeader = '';
+
+    if (isAss) {
+        try {
+            const extradataPtr = await libav.AVCodecParameters_extradata(stream.codecpar);
+            const extradataSize = await libav.AVCodecParameters_extradata_size(stream.codecpar);
+            if (extradataPtr && extradataSize > 0) {
+                const extradata = libav.HEAPU8.slice(extradataPtr, extradataPtr + extradataSize);
+                let headerText = new TextDecoder().decode(extradata).trim();
+                // Extradata typically contains everything up to [Events].
+                // Append the [Events] section if not already present.
+                if (!headerText.includes('[Events]')) {
+                    headerText += '\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
+                } else if (!headerText.includes('Format: Layer')) {
+                    // Has [Events] but missing Format line
+                    headerText += '\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
+                }
+                assHeader = headerText + '\n';
+                console.log(`[libavWorker] Using ASS header from codec extradata (${extradataSize} bytes)`);
+            }
+        } catch (err) {
+            console.warn('[libavWorker] Failed to read ASS extradata, using fallback header:', err);
+        }
+    }
+
+    if (!assHeader) {
+        // Fallback generic header for SRT or missing ASS extradata
+        assHeader = [
+            '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 640', 'PlayResY: 360',
+            '[V4+ Styles]',
+            'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+            'Style: Default,Arial,24,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1',
+            '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text', ''
+        ].join('\n');
+    }
 
     let dialogues = '';
+    let dialogueCount = 0;
     let eof = false;
+    let headerSent = false;
     
     try {
         while (!eof) {
@@ -717,9 +812,8 @@ async function extractSubtitleTrack(file, trackId) {
                 if (p.data) {
                     let line = new TextDecoder().decode(p.data).trim();
                     if (line) {
-                        const isSrt = codecName === 'subrip' || codecName === 'srt';
                         if (isSrt) {
-                            line = line.replace(/\r?\n/g, '\\N');
+                            line = line.replace(/\r?\n/g, '\\N').replace(/\n/g, '\\N');
                             const startMs = Math.round((p.pts * num * 1000) / den);
                             const durationMs = Math.round((p.duration * num * 1000) / den);
                             const endMs = startMs + durationMs;
@@ -727,12 +821,39 @@ async function extractSubtitleTrack(file, trackId) {
                             const startStr = formatAssTime(startMs);
                             const endStr = formatAssTime(endMs);
                             dialogues += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${line}\n`;
+                        } else if (isAss) {
+                            // libav ASS packet data format:
+                            //   ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+                            // ASS Dialogue format requires:
+                            //   Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+                            // So: drop ReadOrder, keep Layer, INSERT Start/End from PTS, keep rest.
+                            const fields = line.split(',');
+                            if (fields.length >= 9) {
+                                const layer = fields[1]; // Layer
+                                const startMs = Math.round((p.pts * num * 1000) / den);
+                                const durationMs = Math.round((p.duration * num * 1000) / den);
+                                const endMs = startMs + durationMs;
+                                const startStr = formatAssTime(startMs);
+                                const endStr = formatAssTime(endMs);
+                                // fields[2:] = Style,Name,MarginL,MarginR,MarginV,Effect,Text
+                                // (Text may contain commas — join preserves them)
+                                const restFields = fields.slice(2).join(',');
+                                dialogues += `Dialogue: ${layer},${startStr},${endStr},${restFields}\n`;
+                            }
                         } else {
                             if (!line.startsWith('Dialogue:')) {
                                 line = 'Dialogue: ' + line;
                             }
                             dialogues += line + '\n';
                         }
+                    }
+                    dialogueCount++;
+
+                    // Send partial results every 100 dialogues so subs appear quickly
+                    if (dialogueCount % 100 === 0) {
+                        console.log(`[libavWorker] Subtitle progress: ${dialogueCount} dialogues extracted...`);
+                        self.postMessage({ type: 'sub_data', text: assHeader + dialogues });
+                        headerSent = true;
                     }
                 }
             }
@@ -742,7 +863,11 @@ async function extractSubtitleTrack(file, trackId) {
         try { await libav.avformat_close_input(fmtCtx); } catch (_) {}
     }
 
-    self.postMessage({ type: 'sub_data', text: assHeader + dialogues });
+    // Send final batch
+    if (dialogues.length > 0 || !headerSent) {
+        console.log(`[libavWorker] Subtitle extraction complete. ${dialogueCount} dialogues total`);
+        self.postMessage({ type: 'sub_data', text: assHeader + dialogues });
+    }
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
