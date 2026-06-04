@@ -13,8 +13,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = join(__dirname, 'public', 'libav');
-const VERSION = '6.8.8.0';
-const BASE_URL = `https://unpkg.com/libav.js@${VERSION}/dist/`;
+const VERSION = '6.8.8.0';           // file names use 4-part version
+const NPM_VERSION = '6.8.8';         // npm/unpkg package uses 3-part version
+const BASE_URL = `https://unpkg.com/libav.js@${NPM_VERSION}/dist/`;
 
 // We only need the 'default' variant (supports MKV/H264/AAC/ASS)
 const FILES = [
