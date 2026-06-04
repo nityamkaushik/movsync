@@ -152,6 +152,7 @@ async function processJoin(container, code, file) {
 
     // Success!
     window.__movsync_file = file;
+    window.__movsync_file = file;
     window.__movsync_videoUrl = URL.createObjectURL(file);
     navigate(`#/lobby/${result.room.code}/false`);
   } catch (err) {

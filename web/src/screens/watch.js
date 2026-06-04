@@ -28,6 +28,12 @@ let subtitleCues = [];
 let subtitlesEnabled = false;
 let currentSubtitle = '';
 
+// MKV Integration Variables
+let libavWorker = null;
+let jassub = null;
+let audioCtx = null;
+let audioFileBlob = null;
+
 export function renderWatch(container, { code, isHost }) {
   const isHostBool = isHost === 'true';
   const videoUrl = window.__movsync_videoUrl;
@@ -49,6 +55,7 @@ export function renderWatch(container, { code, isHost }) {
 
       <!-- Subtitle Overlay -->
       <div class="subtitle-overlay" id="subtitleOverlay"></div>
+      <canvas id="jassubCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></canvas>
 
       <!-- Controls Overlay -->
       <div class="watch-overlay" id="watchOverlay">
@@ -67,13 +74,9 @@ export function renderWatch(container, { code, isHost }) {
             ` : ''}
           </div>
           <div class="watch-top-right">
-            <!-- Subtitle toggle -->
-            <button class="btn-icon-watch" id="subtitleToggleBtn" title="Subtitles">
+            <!-- Subtitle/Settings toggle -->
+            <button class="btn-icon-watch" id="subtitleToggleBtn" title="Audio & Subtitles">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="14" x2="23" y2="14"/><line x1="5" y1="18" x2="19" y2="18"/></svg>
-            </button>
-            <!-- Settings (audio tracks) -->
-            <button class="btn-icon-watch" id="settingsBtn" title="Settings">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
             </button>
             <button class="btn-icon-watch" id="chatToggleBtn" title="Chat">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -88,7 +91,7 @@ export function renderWatch(container, { code, isHost }) {
         <!-- Settings Panel -->
         <div class="settings-panel" id="settingsPanel" style="display:none;">
           <div class="settings-card glass-card">
-            <h4 class="settings-title">Settings</h4>
+            <h4 class="settings-title">Audio & Subtitles</h4>
 
             <div class="settings-section">
               <label class="settings-label">Subtitle Track</label>
@@ -174,6 +177,36 @@ export function renderWatch(container, { code, isHost }) {
 }
 
 async function init(container, roomCode, isHost) {
+  audioFileBlob = window.__movsync_file;
+  
+  if (audioFileBlob && audioFileBlob.name.toLowerCase().endsWith('.mkv')) {
+    libavWorker = new Worker('/libav-worker.js');
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    const canvas = container.querySelector('#jassubCanvas');
+    if (window.JASSUB) {
+      jassub = new window.JASSUB({
+        video: videoElement,
+        canvas: canvas,
+        workerUrl: 'https://cdn.jsdelivr.net/npm/jassub@1.0.8/dist/jassub-worker.min.js',
+        wasmUrl: 'https://cdn.jsdelivr.net/npm/jassub@1.0.8/dist/jassub-worker.wasm'
+      });
+    }
+  }
+
+  // Detect all embedded tracks when metadata loads
+  const detectTracks = () => detectEmbeddedTracks(container);
+  if (videoElement.readyState >= 1) {
+    detectTracks();
+  } else {
+    videoElement.addEventListener('loadedmetadata', detectTracks);
+  }
+
+  // Also try after a short delay (some browsers populate tracks late)
+  videoElement.addEventListener('loadeddata', () => {
+    setTimeout(detectTracks, 500);
+  });
+
   userId = await ensureSignedIn();
   roomData = await getRoomByCode(roomCode);
 
@@ -213,16 +246,6 @@ async function init(container, roomCode, isHost) {
     updateSubtitleOverlay(container);
   }, 200);
 
-  // Detect all embedded tracks when metadata loads
-  videoElement.addEventListener('loadedmetadata', () => {
-    detectEmbeddedTracks(container);
-  });
-
-  // Also try after a short delay (some browsers populate tracks late)
-  videoElement.addEventListener('loadeddata', () => {
-    setTimeout(() => detectEmbeddedTracks(container), 500);
-  });
-
   // Auto-play
   videoElement.play().catch(() => {});
 }
@@ -235,7 +258,7 @@ function setupEventListeners(container, roomCode, isHost) {
   watchScreen.addEventListener('click', (e) => {
     if (e.target.closest('.watch-top-bar') || e.target.closest('.watch-bottom-bar') ||
         e.target.closest('.watch-center') || e.target.closest('.watch-chat-panel') ||
-        e.target.closest('.modal-overlay')) return;
+        e.target.closest('.modal-overlay') || e.target.closest('.settings-panel')) return;
     toggleControls(container);
   });
 
@@ -290,43 +313,12 @@ function setupEventListeners(container, roomCode, isHost) {
     }
   });
 
-  // Subtitle toggle (CC button)
+  // Subtitle/Settings toggle
   container.querySelector('#subtitleToggleBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const select = container.querySelector('#subtitleTrackSelect');
-    if (activeSubSource === 'none' && subtitleCues.length === 0) {
-      // Nothing loaded — open settings panel so user can pick a track or load a file
-      showSettings = true;
-      const panel = container.querySelector('#settingsPanel');
-      if (panel) panel.style.display = 'block';
-    } else if (subtitlesEnabled) {
-      // Turn off
-      handleSubtitleTrackChange(container, 'off');
-      if (select) select.value = 'off';
-    } else {
-      // Turn back on — re-enable whichever was last active
-      if (activeSubSource === 'external' && subtitleCues.length > 0) {
-        handleSubtitleTrackChange(container, 'external');
-        if (select) select.value = 'external';
-      } else if (activeNativeTrackIndex >= 0) {
-        const val = `native-${activeNativeTrackIndex}`;
-        handleSubtitleTrackChange(container, val);
-        if (select) select.value = val;
-      } else {
-        // Open settings
-        showSettings = true;
-        const panel = container.querySelector('#settingsPanel');
-        if (panel) panel.style.display = 'block';
-      }
-    }
-  });
-
-  // Settings toggle
-  container.querySelector('#settingsBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     showSettings = !showSettings;
     const panel = container.querySelector('#settingsPanel');
-    panel.style.display = showSettings ? 'block' : 'none';
+    if (panel) panel.style.display = showSettings ? 'block' : 'none';
   });
 
   // Load subtitle file
@@ -446,22 +438,9 @@ function setupEventListeners(container, roomCode, isHost) {
         break;
       case 'c':
         e.preventDefault();
-        if (subtitlesEnabled) {
-          handleSubtitleTrackChange(container, 'off');
-          const sel = container.querySelector('#subtitleTrackSelect');
-          if (sel) sel.value = 'off';
-        } else if (activeSubSource !== 'none' || subtitleCues.length > 0) {
-          // Re-enable last source
-          const sel = container.querySelector('#subtitleTrackSelect');
-          if (activeSubSource === 'external') {
-            handleSubtitleTrackChange(container, 'external');
-            if (sel) sel.value = 'external';
-          } else if (activeNativeTrackIndex >= 0) {
-            const v = `native-${activeNativeTrackIndex}`;
-            handleSubtitleTrackChange(container, v);
-            if (sel) sel.value = v;
-          }
-        }
+        showSettings = !showSettings;
+        const panel = container.querySelector('#settingsPanel');
+        if (panel) panel.style.display = showSettings ? 'block' : 'none';
         break;
       case 'f':
         e.preventDefault();
@@ -504,6 +483,7 @@ function toggleControls(container) {
 function resetControlsTimer(container) {
   if (controlsTimeout) clearTimeout(controlsTimeout);
   controlsTimeout = setTimeout(() => {
+    if (showSettings) return; // Don't auto-hide if settings panel is open
     showControls = false;
     const overlay = container.querySelector('#watchOverlay');
     if (overlay) overlay.classList.add('hidden');
@@ -756,8 +736,77 @@ let tracksDetected = false;
 function detectEmbeddedTracks(container) {
   if (tracksDetected) return;
   tracksDetected = true;
-  detectEmbeddedSubtitles(container);
-  detectEmbeddedAudio(container);
+  
+  if (libavWorker && audioFileBlob && audioFileBlob.name.toLowerCase().endsWith('.mkv')) {
+    const subHint = container.querySelector('#subtitleHint');
+    const audHint = container.querySelector('#audioHint');
+    if (subHint) subHint.textContent = 'Probing MKV tracks...';
+    if (audHint) audHint.textContent = 'Probing MKV tracks...';
+    
+    libavWorker.onmessage = (e) => handleWorkerMessage(e, container);
+    libavWorker.postMessage({ type: 'probe', file: audioFileBlob });
+  } else {
+    detectEmbeddedSubtitles(container);
+    detectEmbeddedAudio(container);
+  }
+}
+
+let currentAudioNode = null;
+let audioStartTime = 0;
+
+function handleWorkerMessage(e, container) {
+  const { type, tracks, pcm, channels, frames, sampleRate, text, error } = e.data;
+  if (type === 'probed') {
+    populateLibavTracks(container, tracks);
+  } else if (type === 'audio_chunk') {
+    if (!audioCtx) return;
+    const buffer = audioCtx.createBuffer(channels, frames, sampleRate);
+    buffer.copyToChannel(pcm, 0); // simplified for 1 channel
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+    source.start(audioStartTime);
+    audioStartTime += buffer.duration;
+  } else if (type === 'sub_data') {
+    if (jassub) jassub.setTrack(text);
+  } else if (type === 'error') {
+    console.error('libav error:', error);
+    const subHint = container.querySelector('#subtitleHint');
+    const audHint = container.querySelector('#audioHint');
+    if (subHint) subHint.textContent = `Error: ${error}`;
+    if (audHint) audHint.textContent = `Error: ${error}`;
+  }
+}
+
+function populateLibavTracks(container, tracks) {
+  const subSelect = container.querySelector('#subtitleTrackSelect');
+  const subHint = container.querySelector('#subtitleHint');
+  const audSelect = container.querySelector('#audioTrackSelect');
+  const audHint = container.querySelector('#audioHint');
+
+  const audioTracks = tracks.filter(t => t.type === 'audio');
+  const subTracks = tracks.filter(t => t.type === 'sub');
+
+  if (audSelect && audioTracks.length > 0) {
+    audSelect.innerHTML = '<option value="default">Default</option>';
+    audioTracks.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = `libav-aud-${t.id}`;
+      opt.textContent = `🔊 ${t.title || 'Track'} [${t.lang}]`;
+      audSelect.appendChild(opt);
+    });
+    if (audHint) audHint.textContent = `${audioTracks.length} audio tracks found in MKV`;
+  }
+
+  if (subSelect && subTracks.length > 0) {
+    subTracks.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = `libav-sub-${t.id}`;
+      opt.textContent = `🎬 ${t.title || 'Track'} [${t.lang}]`;
+      subSelect.appendChild(opt);
+    });
+    if (subHint) subHint.textContent = `${subTracks.length} subtitle tracks found in MKV`;
+  }
 }
 
 function detectEmbeddedSubtitles(container) {
@@ -789,7 +838,11 @@ function detectEmbeddedSubtitles(container) {
   if (embeddedCount > 0) {
     if (hint) hint.textContent = `${embeddedCount} embedded subtitle track${embeddedCount > 1 ? 's' : ''} found`;
   } else {
-    if (hint) hint.textContent = 'No embedded subtitles found. Load an external .srt file below.';
+    if (hint) {
+      hint.innerHTML = 'Browsers cannot detect embedded subtitles in MKV files.<br>Please load an external .srt/.vtt file below.';
+      hint.style.lineHeight = '1.4';
+      hint.style.opacity = '0.9';
+    }
   }
 }
 
@@ -826,7 +879,11 @@ function detectEmbeddedAudio(container) {
     }
   } else {
     // audioTracks API not available — show info
-    if (hint) hint.textContent = 'Audio track API not available in this browser. Try Edge or Safari for multi-audio support.';
+    if (hint) {
+      hint.innerHTML = 'Browsers cannot detect multiple audio tracks in MKV files.<br>Please use the Android app for full MKV track support.';
+      hint.style.lineHeight = '1.4';
+      hint.style.opacity = '0.9';
+    }
   }
 }
 
@@ -842,6 +899,7 @@ function handleSubtitleTrackChange(container, value) {
     currentSubtitle = '';
     if (overlay) overlay.innerHTML = '';
     disableAllNativeTextTracks();
+    if (jassub) jassub.freeTrack();
     const btn = container.querySelector('#subtitleToggleBtn');
     if (btn) btn.style.opacity = '0.5';
     return;
@@ -852,8 +910,21 @@ function handleSubtitleTrackChange(container, value) {
     activeSubSource = 'external';
     subtitlesEnabled = subtitleCues.length > 0;
     disableAllNativeTextTracks();
+    if (jassub) jassub.freeTrack();
     const btn = container.querySelector('#subtitleToggleBtn');
     if (btn) btn.style.opacity = subtitlesEnabled ? '1' : '0.5';
+    return;
+  }
+  
+  if (value.startsWith('libav-sub-')) {
+    activeSubSource = 'libav';
+    subtitlesEnabled = true;
+    disableAllNativeTextTracks();
+    if (overlay) overlay.innerHTML = '';
+    const trackId = parseInt(value.replace('libav-sub-', ''));
+    if (libavWorker) libavWorker.postMessage({ type: 'extract_sub', file: audioFileBlob, trackId });
+    const btn = container.querySelector('#subtitleToggleBtn');
+    if (btn) btn.style.opacity = '1';
     return;
   }
 
@@ -912,6 +983,25 @@ function onNativeCueChange(container, trackIndex) {
 }
 
 function handleAudioTrackChange(value) {
+  if (value === 'default') {
+    videoElement.muted = false;
+    if (audioCtx) {
+      audioCtx.suspend();
+    }
+    return;
+  }
+  
+  if (value.startsWith('libav-aud-')) {
+    videoElement.muted = true;
+    const trackId = parseInt(value.replace('libav-aud-', ''));
+    if (audioCtx) {
+      audioCtx.resume();
+      audioStartTime = audioCtx.currentTime;
+    }
+    if (libavWorker) libavWorker.postMessage({ type: 'decode', file: audioFileBlob, trackId });
+    return;
+  }
+
   if (!videoElement || !videoElement.audioTracks) return;
 
   if (value.startsWith('native-')) {
