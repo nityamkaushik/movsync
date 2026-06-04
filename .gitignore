@@ -84,7 +84,6 @@ supabase/.branches/
 release_notes.md
 .idea/appInsightsSettings.xml
 .idea/deploymentTargetSelector.xml
-.idea/deploymentTargetSelector.xml
 .idea/misc.xml
 app/release/baselineProfiles/0/app-release.dm
 

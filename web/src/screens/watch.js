@@ -259,6 +259,18 @@ function setupEventListeners(container, roomCode, isHost) {
     if (e.target.closest('.watch-top-bar') || e.target.closest('.watch-bottom-bar') ||
         e.target.closest('.watch-center') || e.target.closest('.watch-chat-panel') ||
         e.target.closest('.modal-overlay') || e.target.closest('.settings-panel')) return;
+
+    if (showSettings) {
+      showSettings = false;
+      const panel = container.querySelector('#settingsPanel');
+      if (panel) panel.style.display = 'none';
+      
+      showControls = false;
+      const overlay = container.querySelector('#watchOverlay');
+      if (overlay) overlay.classList.add('hidden');
+      return;
+    }
+
     toggleControls(container);
   });
 
@@ -319,6 +331,13 @@ function setupEventListeners(container, roomCode, isHost) {
     showSettings = !showSettings;
     const panel = container.querySelector('#settingsPanel');
     if (panel) panel.style.display = showSettings ? 'block' : 'none';
+
+    // If closing settings, hide all controls to return to video only
+    if (!showSettings) {
+      showControls = false;
+      const overlay = container.querySelector('#watchOverlay');
+      if (overlay) overlay.classList.add('hidden');
+    }
   });
 
   // Load subtitle file
