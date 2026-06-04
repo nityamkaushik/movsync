@@ -55,6 +55,13 @@ export function renderHome(container) {
               Join Room
             </button>
           </div>
+          <div class="home-actions" style="margin-top: 16px;">
+            <input type="file" id="localPlayFileInput" accept="video/*" hidden />
+            <button class="btn btn-outline" id="localPlayBtn" style="border-color: #8B5CF6; color: #C084FC; display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Local Play (Test Tracks/Subs)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -129,6 +136,21 @@ export function renderHome(container) {
     }
     saveDisplayName(name);
     navigate('#/join');
+  });
+
+  const localPlayBtn = container.querySelector('#localPlayBtn');
+  const localPlayFileInput = container.querySelector('#localPlayFileInput');
+
+  localPlayBtn.addEventListener('click', () => {
+    localPlayFileInput.click();
+  });
+
+  localPlayFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    window.__movsync_file = file;
+    window.__movsync_videoUrl = URL.createObjectURL(file);
+    navigate('#/watch/local/true');
   });
 
   nameInput.addEventListener('focus', () => {

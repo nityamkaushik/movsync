@@ -1274,6 +1274,11 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
   background-position: right 12px center;
 }
 
+.settings-select option {
+  background-color: #111216;
+  color: #f1f5f9;
+}
+
 .settings-select:focus {
   border-color: var(--electric-purple);
 }
