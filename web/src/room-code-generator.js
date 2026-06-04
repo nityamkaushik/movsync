@@ -1,4 +1,4 @@
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 export function generateRoomCode(length = 6) {
   let code = '';
