@@ -10,9 +10,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import com.nityam.movsync.ui.theme.CyanAccent
+import com.nityam.movsync.ui.theme.ElectricPurple
 
 @Composable
 fun MinimalSeekBar(
@@ -21,13 +24,13 @@ fun MinimalSeekBar(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     activeColor: Color = Color.White,
-    inactiveColor: Color = Color.White.copy(alpha = 0.3f),
+    inactiveColor: Color = Color.White.copy(alpha = 0.18f),
     thumbRadius: Float = 14f,
-    trackHeight: Float = 6f
+    trackHeight: Float = 5f
 ) {
     Canvas(
         modifier = modifier
-            .height(24.dp)
+            .height(28.dp)
             .fillMaxWidth()
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
@@ -45,9 +48,9 @@ fun MinimalSeekBar(
     ) {
         val width = size.width
         val cy = size.height / 2f
-        val currentX = width * position.coerceIn(0f, 1f)
+        val currentX = (width * position.coerceIn(0f, 1f))
 
-        // Inactive Track
+        // Inactive track (background)
         drawRoundRect(
             color = inactiveColor,
             topLeft = Offset(0f, cy - trackHeight / 2f),
@@ -55,19 +58,32 @@ fun MinimalSeekBar(
             cornerRadius = CornerRadius(trackHeight / 2f)
         )
 
-        // Active Track
-        drawRoundRect(
-            color = activeColor,
-            topLeft = Offset(0f, cy - trackHeight / 2f),
-            size = Size(currentX, trackHeight),
-            cornerRadius = CornerRadius(trackHeight / 2f)
-        )
+        // Active track with gradient
+        if (currentX > 0f) {
+            drawRoundRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(ElectricPurple, CyanAccent),
+                    startX = 0f,
+                    endX = currentX.coerceAtLeast(1f)
+                ),
+                topLeft = Offset(0f, cy - trackHeight / 2f),
+                size = Size(currentX, trackHeight),
+                cornerRadius = CornerRadius(trackHeight / 2f)
+            )
+        }
 
-        // Thumb Dot
+        // Thumb
+        val thumbX = currentX.coerceIn(thumbRadius, width - thumbRadius)
+        // Shadow/glow
+        drawCircle(
+            color = Color.White.copy(alpha = 0.2f),
+            radius = thumbRadius + 5f,
+            center = Offset(thumbX, cy)
+        )
         drawCircle(
             color = activeColor,
             radius = thumbRadius,
-            center = Offset(currentX.coerceIn(thumbRadius, width - thumbRadius), cy)
+            center = Offset(thumbX, cy)
         )
     }
 }
