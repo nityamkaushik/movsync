@@ -89,7 +89,7 @@ export function renderJoin(container) {
 
   // Auto-uppercase and filter input
   codeInput.addEventListener('input', () => {
-    codeInput.value = codeInput.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
+    codeInput.value = codeInput.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 6);
     updateJoinBtn();
   });
 

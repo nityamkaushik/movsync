@@ -6,11 +6,11 @@ import org.junit.Test
 
 class RoomCodeGeneratorTest {
     @Test
-    fun generatedCodeIsSixAlphanumericCharacters() {
+    fun generatedCodeIsSixAlphabeticCharacters() {
         val code = RoomCodeGenerator.generate()
 
         assertEquals(6, code.length)
-        assertTrue(code.all { it.isLetterOrDigit() })
+        assertTrue(code.all { it.isLetter() })
     }
 
     @Test

@@ -20,7 +20,7 @@ class JoinRoomViewModel(application: Application) : AndroidViewModel(application
 
     fun updateCode(value: String) {
         _state.value = _state.value.copy(
-            code = value.filter { it.isLetterOrDigit() }.uppercase().take(6),
+            code = value.filter { it.isLetter() }.uppercase().take(6),
             result = null,
             error = null
         )
