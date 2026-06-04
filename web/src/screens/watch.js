@@ -156,6 +156,9 @@ export function renderWatch(container, { code, isHost }) {
             </button>
             <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100" />
           </div>
+          <button class="btn-icon-watch" id="fullscreenBtn" title="Full Screen" style="margin-left: 8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
         </div>
       </div>
 
@@ -426,6 +429,16 @@ function setupEventListeners(container, roomCode, isHost) {
       } else {
         gainNode.gain.setValueAtTime(parseInt(volumeSlider.value) / 100, audioCtx.currentTime);
       }
+    }
+  });
+
+  // Fullscreen
+  container.querySelector('#fullscreenBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      watchScreen.requestFullscreen?.();
     }
   });
 
