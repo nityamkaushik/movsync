@@ -4,27 +4,20 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.MovieCreation
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -32,6 +25,7 @@ import com.nityam.movsync.ui.components.GlassCard
 import com.nityam.movsync.ui.components.GradientButton
 import com.nityam.movsync.ui.components.HashProgressIndicator
 import com.nityam.movsync.ui.components.RoomCodeDisplay
+import com.nityam.movsync.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +38,7 @@ fun CreateRoomScreen(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
     LaunchedEffect(videoUri) {
         if (state is CreateRoomUiState.SelectFile || state is CreateRoomUiState.Error) {
             viewModel.createFromFile(context, videoUri)
@@ -51,45 +46,119 @@ fun CreateRoomScreen(
     }
 
     Scaffold(
+        containerColor = CinemaBlack,
         topBar = {
             TopAppBar(
-                title = { Text("Create Room") },
+                title = {
+                    Text(
+                        "Create Room",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = Color.White
+                )
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = SoftSurface,
+                    contentColor = Color.White,
+                    actionColor = CyanAccent
+                )
+            }
+        }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(ElectricPurple.copy(alpha = 0.10f), Color.Transparent),
+                        radius = 700f
+                    )
+                )
         ) {
-            when (val current = state) {
-                CreateRoomUiState.SelectFile -> {
-                    // Initializing state, wait for LaunchedEffect to trigger Hashing
-                }
-                is CreateRoomUiState.Hashing -> {
-                    GlassCard {
-                        Text("Fingerprinting video")
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 22.dp)
+                    .padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when (val current = state) {
+                    CreateRoomUiState.SelectFile -> {
+                        // Briefly shown — spinner placeholder
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            HashProgressIndicator(null)
+                        }
+                    }
+
+                    is CreateRoomUiState.Hashing -> {
+                        Spacer(Modifier.height(40.dp))
+                        Text(
+                            "Fingerprinting your video…",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Text(
+                            "This creates a unique hash to verify sync with other participants.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(16.dp))
                         HashProgressIndicator(current.progress)
                     }
-                }
-                is CreateRoomUiState.RoomCreated -> {
-                    RoomCodeDisplay(current.room.code, snackbarHostState)
-                    GradientButton(
-                        text = "Open Lobby",
-                        onClick = { onOpenLobby(current.room.code, current.uri) }
-                    )
-                }
-                is CreateRoomUiState.Error -> {
-                    GlassCard { Text(current.message) }
-                    GradientButton(text = "Try Again", onClick = viewModel::reset)
+
+                    is CreateRoomUiState.RoomCreated -> {
+                        Text(
+                            "Room ready! Share the code below.",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        RoomCodeDisplay(current.room.code, snackbarHostState)
+                        GradientButton(
+                            text = "Open Lobby",
+                            icon = Icons.Default.PlayArrow,
+                            onClick = { onOpenLobby(current.room.code, current.uri) }
+                        )
+                    }
+
+                    is CreateRoomUiState.Error -> {
+                        Spacer(Modifier.height(24.dp))
+                        GlassCard {
+                            Text(
+                                current.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = ErrorRed
+                            )
+                        }
+                        GradientButton(
+                            text = "Try Again",
+                            icon = Icons.Default.Refresh,
+                            onClick = viewModel::reset
+                        )
+                    }
                 }
             }
         }
