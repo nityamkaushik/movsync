@@ -21,8 +21,10 @@ fun VideoPlayerComposable(
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
-            if (previousOrientation != null) {
+            if (previousOrientation != null && previousOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                 activity.requestedOrientation = previousOrientation
+            } else {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
             }
             activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
