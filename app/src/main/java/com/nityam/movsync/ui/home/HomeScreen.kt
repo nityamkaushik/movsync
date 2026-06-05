@@ -78,7 +78,7 @@ fun HomeScreen(
         }
     }
     val displayName by viewModel.displayName.collectAsStateWithLifecycle()
-    val updateAvailable by viewModel.updateAvailable.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = CinemaBlack
@@ -154,47 +154,116 @@ fun HomeScreen(
                 }
 
                 // ── Update Banner ────────────────────────────────────
-                if (updateAvailable) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(ElectricPurple.copy(alpha = 0.3f), CyanAccent.copy(alpha = 0.2f))
-                                )
-                            )
-                            .clickable { navController.navigate("settings") }
-                    ) {
-                        Row(
+                when (val state = updateState) {
+                    is HomeUpdateState.Available -> {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(ElectricPurple.copy(alpha = 0.3f), CyanAccent.copy(alpha = 0.2f))
+                                    )
+                                )
+                                .clickable { viewModel.startUpdate() }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Rounded.SystemUpdate,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        "Update to v${state.latestVersion} available",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                }
+                                Text(
+                                    "Update Now →",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = CyanAccent
+                                )
+                            }
+                        }
+                    }
+ 
+                    is HomeUpdateState.Downloading -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(SoftSurface)
+                                .padding(16.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "Downloading update…",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        "${(state.progress * 100).toInt()}%",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = CyanAccent
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { state.progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape),
+                                    color = ElectricPurple,
+                                    trackColor = ElectricPurple.copy(alpha = 0.15f)
+                                )
+                            }
+                        }
+                    }
+ 
+                    HomeUpdateState.Installing -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(SoftSurface)
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Rounded.SystemUpdate,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = CyanAccent,
+                                    strokeWidth = 2.dp
                                 )
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(12.dp))
                                 Text(
-                                    "Update Available",
+                                    "Installing update…",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color.White
                                 )
                             }
-                            Text(
-                                "Update →",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = CyanAccent
-                            )
                         }
                     }
+ 
+                    else -> { /* Idle or failed, do nothing */ }
                 }
 
                 // ── Display Name ────────────────────────────────────
