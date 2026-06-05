@@ -60,12 +60,12 @@ fun ChatUI(
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             // Drag pill
-            Box(
+            /*Box(
                 modifier = Modifier
                     .size(width = 36.dp, height = 4.dp)
                     .align(Alignment.TopCenter)
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(2.dp))
-            )
+            )*/
             Text(
                 "Room Chat",
                 style = MaterialTheme.typography.titleSmall,

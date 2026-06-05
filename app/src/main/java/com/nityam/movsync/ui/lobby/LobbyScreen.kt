@@ -29,10 +29,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.nityam.movsync.ui.chat.ChatUI
 import com.nityam.movsync.ui.chat.ChatViewModel
-import com.nityam.movsync.ui.components.GradientButton
 import com.nityam.movsync.ui.components.ParticipantAvatar
 import com.nityam.movsync.ui.components.RoomCodeDisplay
 import com.nityam.movsync.ui.theme.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.scale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,6 +129,85 @@ fun LobbyScreen(
             ) {
                 RoomCodeDisplay(roomCode, snackbarHostState)
 
+                // Start button / Waiting Card (Permanently above participants, directly below the room code)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SoftSurface.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        if (isHost) {
+                            val verifiedCount = participants.count { it.verified }
+                            val canStart = verifiedCount >= 2
+                            
+                            val playScale by animateFloatAsState(if (canStart) 1.05f else 1.0f, label = "playScale")
+                            
+                            IconButton(
+                                onClick = {
+                                    if (canStart) {
+                                        viewModel.startRoom(roomCode)
+                                        onStartWatching()
+                                    }
+                                },
+                                enabled = canStart,
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .scale(playScale)
+                                    .background(
+                                        brush = if (canStart) {
+                                            Brush.linearGradient(listOf(ElectricPurple, CyanAccent))
+                                        } else {
+                                            Brush.linearGradient(listOf(Color.Gray.copy(alpha = 0.3f), Color.Gray.copy(alpha = 0.3f)))
+                                        },
+                                        shape = CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Start Watching",
+                                    tint = if (canStart) Color.White else Color.White.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = if (canStart) "Start Watching" else "Waiting for participants… ($verifiedCount/2 joined)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (canStart) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .alpha(pulse),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Waiting for host to start",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Participant count badge
                 val verifiedCount = participants.count { it.verified }
                 Row(
@@ -163,43 +244,6 @@ fun LobbyScreen(
                 ) {
                     items(participants, key = { it.userId }) { participant ->
                         ParticipantListItem(participant)
-                    }
-
-                    item {
-                        Spacer(Modifier.height(10.dp))
-                        if (isHost) {
-                            val canStart = participants.count { it.verified } >= 2
-                            GradientButton(
-                                text = if (canStart) "Start Watching" else "Waiting for participants…",
-                                icon = Icons.Default.PlayArrow,
-                                enabled = canStart,
-                                onClick = {
-                                    viewModel.startRoom(roomCode)
-                                    onStartWatching()
-                                }
-                            )
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .alpha(pulse),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "Waiting for host to start",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
                     }
                 }
             }

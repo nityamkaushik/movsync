@@ -127,7 +127,7 @@ fun JoinRoomScreen(
                         .fillMaxWidth()
                         .focusRequester(focusRequester),
                     label = { Text("Room Code") },
-                    placeholder = { Text("e.g. ABC123") },
+                    placeholder = { Text("ABC XYZ") },
                     leadingIcon = {
                         Icon(
                             Icons.Default.Tag,

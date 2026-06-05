@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,7 +23,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nityam.movsync.ui.components.GlassCard
 import com.nityam.movsync.ui.components.GradientButton
 import com.nityam.movsync.ui.components.HashProgressIndicator
-import com.nityam.movsync.ui.components.RoomCodeDisplay
 import com.nityam.movsync.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,6 +40,13 @@ fun CreateRoomScreen(
     LaunchedEffect(videoUri) {
         if (state is CreateRoomUiState.SelectFile || state is CreateRoomUiState.Error) {
             viewModel.createFromFile(context, videoUri)
+        }
+    }
+
+    LaunchedEffect(state) {
+        val current = state
+        if (current is CreateRoomUiState.RoomCreated) {
+            onOpenLobby(current.room.code, current.uri)
         }
     }
 
@@ -130,18 +135,12 @@ fun CreateRoomScreen(
                     }
 
                     is CreateRoomUiState.RoomCreated -> {
-                        Text(
-                            "Room ready! Share the code below.",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        RoomCodeDisplay(current.room.code, snackbarHostState)
-                        GradientButton(
-                            text = "Open Lobby",
-                            icon = Icons.Default.PlayArrow,
-                            onClick = { onOpenLobby(current.room.code, current.uri) }
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            HashProgressIndicator(null)
+                        }
                     }
 
                     is CreateRoomUiState.Error -> {
