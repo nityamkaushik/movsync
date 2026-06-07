@@ -25,11 +25,31 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nityam.movsync.data.sync.SyncStatus
+
+private fun formatTime(ms: Long): String {
+    if (ms < 0) return "00:00"
+    val totalSeconds = ms / 1000
+    val seconds = totalSeconds % 60
+    val minutes = (totalSeconds / 60) % 60
+    val hours = totalSeconds / 3600
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%02d:%02d", minutes, seconds)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +59,8 @@ fun SyncOverlay(
     isHost: Boolean,
     isPlaying: Boolean,
     position: Float,
+    currentPositionMs: Long,
+    durationMs: Long,
     allowControls: Boolean,
     hasUnread: Boolean,
     onToggleControls: () -> Unit,
@@ -144,12 +166,28 @@ fun SyncOverlay(
                     tint = if (controlsEnabled) Color.White else Color.White.copy(alpha = 0.45f)
                 )
             }
-            com.nityam.movsync.ui.components.MinimalSeekBar(
-                position = position,
-                onSeek = onSeek,
-                enabled = controlsEnabled,
-                modifier = Modifier.weight(1f)
-            )
+            
+            Column(modifier = Modifier.weight(1f)) {
+                var showRemainingTime by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = formatTime(currentPositionMs), color = Color.White, fontSize = 12.sp)
+                    Text(
+                        text = if (showRemainingTime) "-${formatTime(durationMs - currentPositionMs)}" else formatTime(durationMs),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
+                    )
+                }
+                com.nityam.movsync.ui.components.MinimalSeekBar(
+                    position = position,
+                    onSeek = onSeek,
+                    enabled = controlsEnabled,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             IconButton(onClick = onAudioSelect) {
                 Icon(Icons.Default.Audiotrack, contentDescription = "Audio Tracks", tint = Color.White)
             }

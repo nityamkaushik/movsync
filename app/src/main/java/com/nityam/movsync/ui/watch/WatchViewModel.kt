@@ -19,7 +19,7 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
     private val _syncStatus = MutableStateFlow(SyncStatus.Synced)
     val syncStatus = _syncStatus.asStateFlow()
     
-    private val _allowControls = MutableStateFlow(false)
+    private val _allowControls = MutableStateFlow(true)
     val allowControls = _allowControls.asStateFlow()
 
     private var activeRoomCode: String? = null

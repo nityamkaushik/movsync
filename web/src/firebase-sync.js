@@ -36,7 +36,11 @@ export async function setAllowControls(roomCode, allow) {
 export function observeAllowControls(roomCode, callback) {
   const r = childRef(roomCode, 'allowControls');
   onValue(r, (snapshot) => {
-    callback(snapshot.val() === true);
+    if (!snapshot.exists()) {
+      callback(true);
+    } else {
+      callback(snapshot.val() === true);
+    }
   });
   return () => off(r);
 }
