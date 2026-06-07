@@ -50,7 +50,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
-
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.delay
 private fun formatTime(ms: Long): String {
     if (ms < 0) return "00:00"
     val totalSeconds = ms / 1000
@@ -63,13 +69,6 @@ private fun formatTime(ms: Long): String {
         String.format("%02d:%02d", minutes, seconds)
     }
 }
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import kotlinx.coroutines.delay
 
 @Composable
 fun LocalWatchScreen(
