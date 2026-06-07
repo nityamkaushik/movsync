@@ -104,9 +104,6 @@ class FirebaseSync(
         )
         presenceRef.setValue(payload).await()
         presenceRef.child("online").onDisconnect().setValue(false)
-        if (isHost) {
-            roomRef(roomCode).onDisconnect().removeValue()
-        }
     }
 
     suspend fun clearPresence(roomCode: String, userId: String) {

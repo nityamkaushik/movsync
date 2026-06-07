@@ -123,12 +123,6 @@ export async function trackPresence(roomCode, userId, displayName, isHost, verif
   const onlineRef = childRef(roomCode, `presence/${userId}/online`);
   const disc = onDisconnect(onlineRef);
   await disc.set(false);
-
-  // If host, remove entire room node on disconnect
-  if (isHost) {
-    const roomDisc = onDisconnect(roomRef(roomCode));
-    await roomDisc.remove();
-  }
 }
 
 export async function clearPresence(roomCode, userId) {
