@@ -31,6 +31,9 @@ import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,7 +48,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
+
+private fun formatTime(ms: Long): String {
+    if (ms < 0) return "00:00"
+    val totalSeconds = ms / 1000
+    val seconds = totalSeconds % 60
+    val minutes = (totalSeconds / 60) % 60
+    val hours = totalSeconds / 3600
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%02d:%02d", minutes, seconds)
+    }
+}
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
@@ -74,6 +91,8 @@ fun LocalWatchScreen(
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var currentPositionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
     
     var showVolumeIndicator by remember { mutableStateOf(false) }
     var showBrightnessIndicator by remember { mutableStateOf(false) }
@@ -107,8 +126,10 @@ fun LocalWatchScreen(
     LaunchedEffect(player) {
         while (true) {
             isPlaying = player.isPlaying
-            progress = if (player.duration > 0L) {
-                player.currentPosition.toFloat() / player.duration.toFloat()
+            currentPositionMs = player.currentPosition
+            durationMs = player.duration.coerceAtLeast(0L)
+            progress = if (durationMs > 0L) {
+                currentPositionMs.toFloat() / durationMs.toFloat()
             } else {
                 0f
             }
@@ -162,6 +183,7 @@ fun LocalWatchScreen(
         controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose {
             player.release()
+            pipController.clearPipParams()
             controller?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
@@ -245,6 +267,8 @@ fun LocalWatchScreen(
             LocalPlayerOverlay(
                 isPlaying = isPlaying,
                 position = progress,
+                currentPositionMs = currentPositionMs,
+                durationMs = durationMs,
                 onPlayPause = {
                     if (player.isPlaying) player.pause() else player.play()
                 },
@@ -293,6 +317,8 @@ fun LocalWatchScreen(
 private fun LocalPlayerOverlay(
     isPlaying: Boolean,
     position: Float,
+    currentPositionMs: Long,
+    durationMs: Long,
     onPlayPause: () -> Unit,
     onSeek: (Float) -> Unit,
     onLeave: () -> Unit,
@@ -353,11 +379,27 @@ private fun LocalPlayerOverlay(
                     tint = Color.White
                 )
             }
-            com.nityam.movsync.ui.components.MinimalSeekBar(
-                position = position,
-                onSeek = onSeek,
-                modifier = Modifier.weight(1f)
-            )
+            
+            Column(modifier = Modifier.weight(1f)) {
+                var showRemainingTime by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = formatTime(currentPositionMs), color = Color.White, fontSize = 12.sp)
+                    Text(
+                        text = if (showRemainingTime) "-${formatTime(durationMs - currentPositionMs)}" else formatTime(durationMs),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
+                    )
+                }
+                com.nityam.movsync.ui.components.MinimalSeekBar(
+                    position = position,
+                    onSeek = onSeek,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             IconButton(onClick = onAudioSelect) {
                 Icon(Icons.Default.Audiotrack, contentDescription = "Audio Tracks", tint = Color.White)
             }

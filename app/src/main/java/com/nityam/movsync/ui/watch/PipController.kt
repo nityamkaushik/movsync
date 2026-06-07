@@ -72,6 +72,16 @@ class PipController(private val context: Context) {
         }
     }
 
+    fun clearPipParams() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isPipSupported) {
+            val paramsBuilder = PictureInPictureParams.Builder()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                paramsBuilder.setAutoEnterEnabled(false)
+            }
+            activity?.setPictureInPictureParams(paramsBuilder.build())
+        }
+    }
+
     companion object {
         const val ACTION_PIP_PLAY_PAUSE = "com.nityam.movsync.PIP_PLAY_PAUSE"
     }

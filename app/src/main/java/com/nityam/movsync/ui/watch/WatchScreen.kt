@@ -96,6 +96,8 @@ fun WatchScreen(
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var currentPositionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
     
     var showVolumeIndicator by remember { mutableStateOf(false) }
     var showBrightnessIndicator by remember { mutableStateOf(false) }
@@ -134,8 +136,10 @@ fun WatchScreen(
     LaunchedEffect(player) {
         while (true) {
             isPlaying = player.isPlaying
-            progress = if (player.duration > 0L) {
-                player.currentPosition.toFloat() / player.duration.toFloat()
+            currentPositionMs = player.currentPosition
+            durationMs = player.duration.coerceAtLeast(0L)
+            progress = if (durationMs > 0L) {
+                currentPositionMs.toFloat() / durationMs.toFloat()
             } else {
                 0f
             }
@@ -193,6 +197,7 @@ fun WatchScreen(
         onDispose {
             viewModel.stop()
             player.release()
+            pipController.clearPipParams()
             controller?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
@@ -289,6 +294,8 @@ fun WatchScreen(
                 isHost = isHost,
                 isPlaying = isPlaying,
                 position = progress,
+                currentPositionMs = currentPositionMs,
+                durationMs = durationMs,
                 allowControls = allowControls,
                 hasUnread = hasUnread,
                 onToggleControls = viewModel::toggleControls,

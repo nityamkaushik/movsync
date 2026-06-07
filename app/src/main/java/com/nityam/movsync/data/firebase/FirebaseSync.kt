@@ -52,7 +52,7 @@ class FirebaseSync(
     fun observeAllowControls(roomCode: String): Flow<Boolean> = callbackFlow {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                trySend(snapshot.getValue(Boolean::class.java) ?: false)
+                trySend(snapshot.getValue(Boolean::class.java) ?: true)
             }
             override fun onCancelled(error: DatabaseError) {
                 close(error.toException())

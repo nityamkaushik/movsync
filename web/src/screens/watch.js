@@ -21,12 +21,13 @@ let lastReadCount = 0;
 let currentMessages = [];
 let unsubChat = null;
 let unsubAllowControls = null;
-let allowControls = false;
+let allowControls = true;
 let syncStatus = 'synced';
 let progressInterval = null;
 let subtitleCues = [];
 let subtitlesEnabled = false;
 let currentSubtitle = '';
+let showRemainingTime = false;
 
 // MKV Integration Variables
 let libavWorker = null;
@@ -148,11 +149,16 @@ export function renderWatch(container, { code, isHost }) {
           <button class="btn-icon-watch" id="bottomPlayBtn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="bottomPlayIcon"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </button>
-          <div class="seek-bar-container">
-            <input type="range" class="seek-bar" id="seekBar" min="0" max="1000" value="0" step="1" />
-            <div class="seek-bar-fill" id="seekBarFill"></div>
+          <div class="seek-bar-wrapper" style="flex: 1; display: flex; flex-direction: column; justify-content: center; margin: 0 12px;">
+            <div style="display: flex; justify-content: space-between; padding: 0 4px; margin-bottom: 4px; font-size: 12px; color: white;">
+              <span id="timeCurrent">0:00</span>
+              <span id="timeTotal" style="cursor: pointer;">0:00</span>
+            </div>
+            <div class="seek-bar-container" style="position: relative; width: 100%;">
+              <input type="range" class="seek-bar" id="seekBar" min="0" max="1000" value="0" step="1" style="width: 100%; margin: 0;" />
+              <div class="seek-bar-fill" id="seekBarFill"></div>
+            </div>
           </div>
-          <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
           <div class="volume-control">
             <button class="btn-icon-watch" id="volumeBtn">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
@@ -404,6 +410,13 @@ function setupEventListeners(container, roomCode, isHost) {
     resetControlsTimer(container);
   });
 
+  // Time toggle
+  container.querySelector('#timeTotal')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showRemainingTime = !showRemainingTime;
+    updateProgress(container);
+  });
+
   // Volume
   const volumeSlider = container.querySelector('#volumeSlider');
   volumeSlider.addEventListener('input', (e) => {
@@ -649,7 +662,8 @@ function updateProgress(container) {
 
   const seekBar = container.querySelector('#seekBar');
   const seekFill = container.querySelector('#seekBarFill');
-  const timeDisplay = container.querySelector('#timeDisplay');
+  const timeCurrent = container.querySelector('#timeCurrent');
+  const timeTotal = container.querySelector('#timeTotal');
 
   if (seekBar && !seekBar.matches(':active')) {
     seekBar.value = Math.round(progress);
@@ -657,8 +671,11 @@ function updateProgress(container) {
   if (seekFill) {
     seekFill.style.width = `${(progress / 1000) * 100}%`;
   }
-  if (timeDisplay) {
-    timeDisplay.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+  if (timeCurrent) {
+    timeCurrent.textContent = formatTime(current);
+  }
+  if (timeTotal) {
+    timeTotal.textContent = showRemainingTime ? `-${formatTime(duration - current)}` : formatTime(duration);
   }
 
   // Update play icons
@@ -787,7 +804,7 @@ function cleanup(roomCode) {
   showSettings = false;
   showControls = true;
   lastReadCount = 0;
-  allowControls = false;
+  allowControls = true;
   syncStatus = 'synced';
   subtitleCues = [];
   subtitlesEnabled = false;
