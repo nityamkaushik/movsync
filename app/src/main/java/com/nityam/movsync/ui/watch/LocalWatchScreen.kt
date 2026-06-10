@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -116,6 +117,11 @@ fun LocalWatchScreen(
             setEnableDecoderFallback(true)
         }
         ExoPlayer.Builder(context, renderersFactory).build().apply {
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build()
+            setAudioAttributes(audioAttributes, true)
             setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
             playWhenReady = true // Auto-play local videos

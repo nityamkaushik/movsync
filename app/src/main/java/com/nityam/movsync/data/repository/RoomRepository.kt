@@ -91,15 +91,43 @@ class RoomRepository(
         isHost: Boolean,
         verified: Boolean
     ) {
-        supabase.from("participants").upsert(
-            ParticipantInsert(
-                roomId = roomId,
-                userId = userId,
-                displayName = displayName,
-                isHost = isHost,
-                fingerprintVerified = verified
+        val existing = runCatching {
+            supabase.from("participants")
+                .select {
+                    filter {
+                        eq("room_id", roomId)
+                        eq("user_id", userId)
+                    }
+                    limit(1)
+                }
+                .decodeList<com.nityam.movsync.data.model.Participant>()
+                .firstOrNull()
+        }.getOrNull()
+
+        if (existing == null) {
+            supabase.from("participants").insert(
+                ParticipantInsert(
+                    roomId = roomId,
+                    userId = userId,
+                    displayName = displayName,
+                    isHost = isHost,
+                    fingerprintVerified = verified
+                )
             )
-        )
+        } else {
+            supabase.from("participants").update(
+                {
+                    set("display_name", displayName)
+                    set("is_host", isHost)
+                    set("fingerprint_verified", verified)
+                }
+            ) {
+                filter {
+                    eq("room_id", roomId)
+                    eq("user_id", userId)
+                }
+            }
+        }
     }
 }
 

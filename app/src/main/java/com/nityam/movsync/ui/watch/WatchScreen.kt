@@ -46,6 +46,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.C
@@ -122,6 +123,11 @@ fun WatchScreen(
             setEnableDecoderFallback(true)
         }
         ExoPlayer.Builder(context, renderersFactory).build().apply {
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build()
+            setAudioAttributes(audioAttributes, true)
             setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
             playWhenReady = true
@@ -228,9 +234,9 @@ fun WatchScreen(
                                 val width = size.width
                                 val duration = player.duration.takeIf { it > 0L } ?: return@detectTapGestures
                                 if (offset.x > width / 2) {
-                                    player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration))
+                                    viewModel.userSeek((player.currentPosition + 10_000).coerceAtMost(duration))
                                 } else {
-                                    player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
+                                    viewModel.userSeek((player.currentPosition - 10_000).coerceAtLeast(0))
                                 }
                             }
                         }
@@ -245,7 +251,7 @@ fun WatchScreen(
                                 val duration = player.duration.takeIf { it > 0L } ?: return@detectHorizontalDragGestures
                                 // 1 pixel drag = 100ms seek
                                 val newPos = player.currentPosition + (dragAmount * 100L).toLong()
-                                player.seekTo(newPos.coerceIn(0L, duration))
+                                viewModel.userSeek(newPos.coerceIn(0L, duration))
                             }
                         }
                     )
