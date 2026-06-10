@@ -44,6 +44,11 @@ android {
             "SUPABASE_KEY",
             "\"${localProperty("SUPABASE_KEY", "replace-with-supabase-anon-key")}\""
         )
+        buildConfigField(
+            "String",
+            "LIVEKIT_URL",
+            "\"${localProperty("LIVEKIT_URL", "wss://placeholder-livekit-url")}\""
+        )
     }
 
     buildTypes {
@@ -93,6 +98,8 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.functions)
+    implementation(libs.livekit.android)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

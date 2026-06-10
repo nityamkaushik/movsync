@@ -8,6 +8,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,6 +81,48 @@ fun WatchScreen(
     var showChat by remember { mutableStateOf(false) }
     var lastReadMessageCount by remember { mutableIntStateOf(0) }
     val currentUserId = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
+    val currentUserDisplayName = remember { FirebaseAuth.getInstance().currentUser?.displayName ?: "User" }
+
+    val voiceChatViewModel: VoiceChatViewModel = viewModel()
+    val isVoiceConnected by voiceChatViewModel.isConnected.collectAsStateWithLifecycle()
+    val isVoiceMuted by voiceChatViewModel.isMuted.collectAsStateWithLifecycle()
+    val isRemoteSpeaking by voiceChatViewModel.isRemoteSpeaking.collectAsStateWithLifecycle()
+    val headphonesConnected by voiceChatViewModel.headphonesConnected.collectAsStateWithLifecycle()
+
+    var voiceHasBeenConnected by remember { mutableStateOf(false) }
+    var lastHeadphonesState by remember { mutableStateOf(headphonesConnected) }
+
+    LaunchedEffect(isVoiceConnected, headphonesConnected) {
+        if (isVoiceConnected) {
+            if (!voiceHasBeenConnected) {
+                voiceHasBeenConnected = true
+                val message = if (headphonesConnected) {
+                    "Voice connected (High-Fidelity stereo mode)"
+                } else {
+                    "Voice connected. Plug in headphones for high-fidelity movie sound!"
+                }
+                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+            } else if (headphonesConnected != lastHeadphonesState) {
+                val message = if (headphonesConnected) {
+                    "Headphones connected! Reconnect to voice chat for high-fidelity mode."
+                } else {
+                    "Headphones disconnected! Switched to echo-cancelled speaker mode."
+                }
+                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        } else {
+            voiceHasBeenConnected = false
+        }
+        lastHeadphonesState = headphonesConnected
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            voiceChatViewModel.joinRoom(roomCode, currentUserDisplayName, currentUserId)
+        }
+    }
 
     LaunchedEffect(chatMessages.size, showChat) {
         if (showChat) {
@@ -101,7 +148,7 @@ fun WatchScreen(
     
     var showVolumeIndicator by remember { mutableStateOf(false) }
     var showBrightnessIndicator by remember { mutableStateOf(false) }
-    var currentVolume by remember { mutableFloatStateOf(0f) }
+    var currentVolume by remember { mutableFloatStateOf(1f) }
     var currentBrightness by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(currentVolume) {
@@ -117,6 +164,8 @@ fun WatchScreen(
         }
     }
 
+
+
     val player = remember(videoUri) {
         val renderersFactory = DefaultRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
@@ -125,6 +174,14 @@ fun WatchScreen(
             setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
             playWhenReady = true
+        }
+    }
+
+    LaunchedEffect(isRemoteSpeaking, currentVolume) {
+        if (isRemoteSpeaking) {
+            player.volume = currentVolume * 0.3f
+        } else {
+            player.volume = currentVolume
         }
     }
 
@@ -313,6 +370,22 @@ fun WatchScreen(
                 durationMs = durationMs,
                 allowControls = allowControls,
                 hasUnread = hasUnread,
+                isVoiceConnected = isVoiceConnected,
+                isVoiceMuted = isVoiceMuted,
+                onToggleVoice = {
+                    if (isVoiceConnected) {
+                        voiceChatViewModel.toggleMute()
+                    } else {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            voiceChatViewModel.joinRoom(roomCode, currentUserDisplayName, currentUserId)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                },
+                onDisconnectVoice = {
+                    voiceChatViewModel.leaveRoom()
+                },
                 onToggleControls = viewModel::toggleControls,
                 onToggleChat = { showChat = !showChat },
                 onPlayPause = {

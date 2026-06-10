@@ -12,6 +12,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
@@ -63,6 +66,10 @@ fun SyncOverlay(
     durationMs: Long,
     allowControls: Boolean,
     hasUnread: Boolean,
+    isVoiceConnected: Boolean,
+    isVoiceMuted: Boolean,
+    onToggleVoice: () -> Unit,
+    onDisconnectVoice: () -> Unit,
     onToggleControls: () -> Unit,
     onToggleChat: () -> Unit,
     onPlayPause: () -> Unit,
@@ -123,6 +130,30 @@ fun SyncOverlay(
                         }
                     ) {
                         Icon(Icons.Default.Chat, contentDescription = "Chat", tint = Color.White)
+                    }
+                }
+                if (isVoiceConnected) {
+                    IconButton(onClick = onToggleVoice) {
+                        Icon(
+                            if (isVoiceMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = "Mute or unmute microphone",
+                            tint = if (isVoiceMuted) Color.White.copy(alpha = 0.5f) else Color.Green
+                        )
+                    }
+                    IconButton(onClick = onDisconnectVoice) {
+                        Icon(
+                            Icons.Default.CallEnd,
+                            contentDescription = "Disconnect voice chat",
+                            tint = Color.Red
+                        )
+                    }
+                } else {
+                    IconButton(onClick = onToggleVoice) {
+                        Icon(
+                            Icons.Default.MicOff,
+                            contentDescription = "Join voice chat",
+                            tint = Color.White
+                        )
                     }
                 }
                 IconButton(onClick = onLeave) {

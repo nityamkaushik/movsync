@@ -3,6 +3,7 @@ package com.nityam.movsync.data.supabase
 import com.nityam.movsync.BuildConfig
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
 
 object SupabaseClientProvider {
@@ -12,5 +13,6 @@ object SupabaseClientProvider {
     ) {
         install(Auth)
         install(Postgrest)
+        install(Functions)
     }
 }

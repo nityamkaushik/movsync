@@ -16,6 +16,7 @@ ktor = "3.3.3"
 media3 = "1.6.0"
 navigationCompose = "2.9.6"
 supabaseBom = "3.6.0"
+livekit = "2.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -51,6 +52,8 @@ media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "medi
 supabase-bom = { group = "io.github.jan-tennert.supabase", name = "bom", version.ref = "supabaseBom" }
 supabase-auth = { group = "io.github.jan-tennert.supabase", name = "auth-kt" }
 supabase-postgrest = { group = "io.github.jan-tennert.supabase", name = "postgrest-kt" }
+supabase-functions = { group = "io.github.jan-tennert.supabase", name = "functions-kt" }
+livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
