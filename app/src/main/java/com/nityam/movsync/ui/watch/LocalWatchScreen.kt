@@ -145,15 +145,22 @@ fun LocalWatchScreen(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
+    var wasPlaying by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 val isPip = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && activity?.isInPictureInPictureMode == true
                 if (!isPip) {
+                    wasPlaying = player.isPlaying
                     player.pause()
                 }
             } else if (event == Lifecycle.Event.ON_STOP) {
+                if (player.isPlaying) wasPlaying = true
                 player.pause()
+            } else if (event == Lifecycle.Event.ON_RESUME) {
+                if (wasPlaying) {
+                    player.play()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
