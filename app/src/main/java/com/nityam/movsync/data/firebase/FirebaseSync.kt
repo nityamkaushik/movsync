@@ -18,6 +18,20 @@ class FirebaseSync(
     private val database: FirebaseDatabase,
     private val firebaseAuth: FirebaseAuth
 ) {
+    private var serverTimeOffset: Long = 0L
+
+    init {
+        database.getReference(".info/serverTimeOffset").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                serverTimeOffset = snapshot.getValue(Long::class.java) ?: 0L
+            }
+            override fun onCancelled(error: DatabaseError) = Unit
+        })
+    }
+
+    fun getEstimatedServerTime(): Long {
+        return System.currentTimeMillis() + serverTimeOffset
+    }
     private fun roomRef(roomCode: String) = database.reference
         .child("movsync")
         .child("rooms")

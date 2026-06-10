@@ -68,7 +68,7 @@ class SyncEngine(
             }
         } else {
             heartbeatListener = firebaseSync.listenToHeartbeat(roomCode) { heartbeat ->
-                val adjustedPosition = heartbeat.position + (System.currentTimeMillis() - heartbeat.timestamp)
+                val adjustedPosition = heartbeat.position + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
                 if (heartbeat.isPlaying && !player.isPlaying) {
                     player.play()
                 } else if (!heartbeat.isPlaying && player.isPlaying) {
@@ -78,7 +78,7 @@ class SyncEngine(
             }
             scope.launch {
                 firebaseSync.getHeartbeatOnce(roomCode)?.let { heartbeat ->
-                    val adjustedPosition = heartbeat.position + (System.currentTimeMillis() - heartbeat.timestamp)
+                    val adjustedPosition = heartbeat.position + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
                     player.seekTo(adjustedPosition.coerceAtLeast(0L))
                     if (heartbeat.isPlaying) player.play() else player.pause()
                 }

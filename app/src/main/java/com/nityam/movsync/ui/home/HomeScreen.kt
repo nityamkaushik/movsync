@@ -87,6 +87,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 // Subtle radial glow at top
                 .background(
                     brush = Brush.radialGradient(
@@ -102,23 +103,23 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 22.dp)
+                    .padding(horizontal = 16.dp)
                     .padding(bottom = 72.dp)
-                    .padding(top = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                    .padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // ── Header ────────────────────────────────────
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 20.dp),
+                        .padding(top = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
                             "MovSync",
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -385,12 +386,12 @@ private fun PrimaryActionCard(onClick: () -> Unit) {
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(22.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(48.dp)
                     .background(Color.White.copy(alpha = 0.2f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
@@ -434,7 +435,7 @@ private fun SecondaryActionCard(
 
     Box(
         modifier = modifier
-            .height(130.dp)
+            .height(115.dp)
             .scale(scale)
             .clip(RoundedCornerShape(20.dp))
             .background(SoftSurface)
@@ -453,7 +454,7 @@ private fun SecondaryActionCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -505,12 +506,12 @@ private fun WebSyncCard(onClick: () -> Unit) {
                 )
         )
         Row(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
-                    "Sync with Windows / Apple / Linux",
+                    "Sync with Web / Desktop",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White

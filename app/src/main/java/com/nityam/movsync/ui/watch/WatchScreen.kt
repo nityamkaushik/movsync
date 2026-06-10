@@ -235,24 +235,32 @@ fun WatchScreen(
                                 val width = size.width
                                 val duration = player.duration.takeIf { it > 0L } ?: return@detectTapGestures
                                 if (offset.x > width / 2) {
-                                    player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration))
+                                    val newPos = (player.currentPosition + 10_000).coerceAtMost(duration)
+                                    viewModel.userSeek(newPos)
                                 } else {
-                                    player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
+                                    val newPos = (player.currentPosition - 10_000).coerceAtLeast(0)
+                                    viewModel.userSeek(newPos)
                                 }
                             }
                         }
                     )
                 }
                 .pointerInput(isHost, allowControls) {
+                    var dragPosition: Long? = null
                     detectHorizontalDragGestures(
-                        onDragEnd = { },
+                        onDragEnd = { 
+                            dragPosition?.let { viewModel.userSeek(it) }
+                            dragPosition = null
+                        },
                         onHorizontalDrag = { change, dragAmount ->
                             if (isHost || allowControls) {
                                 change.consume()
                                 val duration = player.duration.takeIf { it > 0L } ?: return@detectHorizontalDragGestures
                                 // 1 pixel drag = 100ms seek
                                 val newPos = player.currentPosition + (dragAmount * 100L).toLong()
-                                player.seekTo(newPos.coerceIn(0L, duration))
+                                val coercedPos = newPos.coerceIn(0L, duration)
+                                player.seekTo(coercedPos)
+                                dragPosition = coercedPos
                             }
                         }
                     )

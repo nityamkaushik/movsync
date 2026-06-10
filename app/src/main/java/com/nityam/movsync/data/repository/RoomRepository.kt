@@ -99,7 +99,9 @@ class RoomRepository(
                 isHost = isHost,
                 fingerprintVerified = verified
             )
-        )
+        ) {
+            onConflict = "room_id, user_id"
+        }
     }
 }
 

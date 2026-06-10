@@ -35,6 +35,7 @@ import com.nityam.movsync.ui.theme.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.scale
+import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +47,10 @@ fun LobbyScreen(
     onStartWatching: () -> Unit,
     viewModel: LobbyViewModel = viewModel()
 ) {
+    BackHandler {
+        onBack()
+    }
+
     val participants by viewModel.participants.collectAsStateWithLifecycle()
     val started by viewModel.started.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -108,7 +113,7 @@ fun LobbyScreen(
             }
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -122,9 +127,10 @@ fun LobbyScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .weight(0.6f)
+                    .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .padding(top = 6.dp),
+                    .padding(top = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 RoomCodeDisplay(roomCode, snackbarHostState)
@@ -138,7 +144,7 @@ fun LobbyScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -157,7 +163,7 @@ fun LobbyScreen(
                                 },
                                 enabled = canStart,
                                 modifier = Modifier
-                                    .size(72.dp)
+                                    .size(56.dp)
                                     .scale(playScale)
                                     .background(
                                         brush = if (canStart) {
@@ -172,7 +178,7 @@ fun LobbyScreen(
                                     imageVector = Icons.Default.PlayArrow,
                                     contentDescription = "Start Watching",
                                     tint = if (canStart) Color.White else Color.White.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(28.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.height(10.dp))
@@ -240,7 +246,7 @@ fun LobbyScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 320.dp)
+                    contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(participants, key = { it.userId }) { participant ->
                         ParticipantListItem(participant)
@@ -253,9 +259,8 @@ fun LobbyScreen(
                 currentUserId = currentUserId,
                 onSendMessage = { chatViewModel.sendMessage(it) },
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(300.dp)
+                    .weight(0.4f)
             )
         }
     }
@@ -278,7 +283,9 @@ private fun ParticipantListItem(participant: com.nityam.movsync.data.model.Prese
                 participant.displayName,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White
+                color = Color.White,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
             Text(
                 when {
