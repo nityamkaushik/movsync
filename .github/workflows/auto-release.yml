@@ -2,10 +2,8 @@ name: Auto Release APK
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'app/release/app-release.apk'
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -16,6 +14,46 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Inject Secret Configurations
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          echo "$LOCAL_PROPERTIES" > local.properties
+
+      - name: Decode Keystore
+        env:
+          ENCODED_STRING: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          echo "$ENCODED_STRING" | base64 --decode > app/keystore.jks
+
+      - name: Build Release APK
+        env:
+          ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/app/keystore.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+
+      - name: Clean up Keystore
+        if: always()
+        run: rm -f app/keystore.jks
 
       - name: Extract Version
         id: get_version
@@ -28,8 +66,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ github.ref_name }}
           name: ${{ steps.get_version.outputs.RELEASE_NAME }}
-          files: app/release/app-release.apk
+          files: app/build/outputs/apk/release/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
