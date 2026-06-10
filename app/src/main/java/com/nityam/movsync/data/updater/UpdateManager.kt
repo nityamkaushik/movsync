@@ -46,7 +46,7 @@ class UpdateManager(private val context: Context) {
                     }
                 }
 
-                val currentVersion = "${BuildConfig.VERSION_NAME}.${BuildConfig.VERSION_CODE}"
+                val currentVersion = BuildConfig.VERSION_NAME
                 val latestClean = tagName.removePrefix("v").trim()
                 val currentClean = currentVersion.removePrefix("v").trim()
                 
