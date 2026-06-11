@@ -150,21 +150,23 @@ fun SettingsScreen(
                                     )
                                 }
                                 updateInfo?.isUpdateAvailable == true -> {
+                                    val hasDownloadedApk = updateInfo?.downloadedApkFile != null
                                     Text(
-                                        "Version ${updateInfo!!.latestVersion} available",
+                                        if (hasDownloadedApk) "Version ${updateInfo!!.latestVersion} ready to install" 
+                                        else "Version ${updateInfo!!.latestVersion} available",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Button(
-                                        onClick = viewModel::downloadUpdate,
+                                        onClick = if (hasDownloadedApk) viewModel::installUpdate else viewModel::downloadUpdate,
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = ElectricPurple
+                                            containerColor = if (hasDownloadedApk) SuccessGreen else ElectricPurple
                                         ),
                                         shape = RoundedCornerShape(10.dp),
                                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                                     ) {
-                                        Text("Update Now", style = MaterialTheme.typography.labelLarge)
+                                        Text(if (hasDownloadedApk) "Install Now" else "Update Now", style = MaterialTheme.typography.labelLarge)
                                     }
                                 }
                                 else -> {

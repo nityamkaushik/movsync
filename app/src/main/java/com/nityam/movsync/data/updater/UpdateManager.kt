@@ -19,7 +19,8 @@ class UpdateManager(private val context: Context) {
     data class UpdateInfo(
         val isUpdateAvailable: Boolean,
         val latestVersion: String,
-        val downloadUrl: String?
+        val downloadUrl: String?,
+        val downloadedApkFile: File? = null
     )
 
     suspend fun checkForUpdates(): UpdateInfo = withContext(Dispatchers.IO) {
@@ -50,10 +51,27 @@ class UpdateManager(private val context: Context) {
                 val latestClean = tagName.removePrefix("v").trim()
                 val currentClean = currentVersion.removePrefix("v").trim()
                 
+                var downloadedApkFile: File? = null
+                val updateDir = File(context.cacheDir, "updates")
+                val apkFile = File(updateDir, "update.apk")
+                if (apkFile.exists() && apkFile.length() > 0L) {
+                    val pi = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+                    val apkVersion = pi?.versionName?.removePrefix("v")?.trim()
+                    
+                    if (apkVersion == currentClean) {
+                        apkFile.delete()
+                    } else if (apkVersion == latestClean) {
+                        downloadedApkFile = apkFile
+                    } else {
+                        apkFile.delete()
+                    }
+                }
+
                 return@withContext UpdateInfo(
                     isUpdateAvailable = latestClean != currentClean && downloadUrl != null,
                     latestVersion = latestClean,
-                    downloadUrl = downloadUrl
+                    downloadUrl = downloadUrl,
+                    downloadedApkFile = downloadedApkFile
                 )
             }
         } catch (e: Exception) {
@@ -62,7 +80,7 @@ class UpdateManager(private val context: Context) {
         UpdateInfo(false, BuildConfig.VERSION_NAME, null)
     }
 
-    suspend fun downloadAndInstallUpdate(downloadUrl: String, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
+    suspend fun downloadAndInstallUpdate(downloadUrl: String, onProgress: (Float) -> Unit): File? = withContext(Dispatchers.IO) {
         try {
             val updateDir = File(context.cacheDir, "updates")
             if (!updateDir.exists()) updateDir.mkdirs()
@@ -92,15 +110,15 @@ class UpdateManager(private val context: Context) {
             output.close()
             input.close()
 
-            installApk(apkFile)
-            true
+            triggerInstall(apkFile)
+            apkFile
         } catch (e: Exception) {
             Log.e("UpdateManager", "Failed to download update", e)
-            false
+            null
         }
     }
 
-    private fun installApk(apkFile: File) {
+    fun triggerInstall(apkFile: File) {
         val uri = FileProvider.getUriForFile(
             context,
             "${BuildConfig.APPLICATION_ID}.fileprovider",
@@ -112,5 +130,9 @@ class UpdateManager(private val context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+    }
+
+    private fun installApk(apkFile: File) {
+        triggerInstall(apkFile)
     }
 }

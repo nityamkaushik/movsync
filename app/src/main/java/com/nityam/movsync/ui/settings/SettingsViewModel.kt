@@ -40,10 +40,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _isDownloading.value = true
         _downloadProgress.value = 0f
         viewModelScope.launch {
-            updateManager.downloadAndInstallUpdate(url) { progress ->
+            val apkFile = updateManager.downloadAndInstallUpdate(url) { progress ->
                 _downloadProgress.value = progress
+            }
+            if (apkFile != null) {
+                val currentInfo = _updateInfo.value
+                if (currentInfo != null) {
+                    _updateInfo.value = currentInfo.copy(downloadedApkFile = apkFile)
+                }
             }
             _isDownloading.value = false
         }
+    }
+
+    fun installUpdate() {
+        val apkFile = _updateInfo.value?.downloadedApkFile ?: return
+        updateManager.triggerInstall(apkFile)
     }
 }

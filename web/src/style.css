@@ -984,6 +984,45 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
   background: rgba(255, 255, 255, 0.12);
 }
 
+.voice-mic-btn svg {
+  stroke: white;
+}
+
+.voice-mic-btn.voice-connected svg {
+  stroke: var(--error-red);
+}
+
+.voice-mic-btn.voice-connecting svg {
+  stroke: var(--success-green);
+  animation: mic-blink 1s ease-in-out infinite;
+}
+
+@keyframes mic-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.watch-toast {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  z-index: 40;
+  padding: 10px 16px;
+  color: white;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.watch-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .chat-badge {
   position: absolute;
   top: 2px;

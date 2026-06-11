@@ -84,22 +84,35 @@ fun WatchScreen(
     val currentUserDisplayName = remember { FirebaseAuth.getInstance().currentUser?.displayName ?: "User" }
 
     val voiceChatViewModel: VoiceChatViewModel = viewModel()
-    val isVoiceConnected by voiceChatViewModel.isConnected.collectAsStateWithLifecycle()
-    val isVoiceMuted by voiceChatViewModel.isMuted.collectAsStateWithLifecycle()
+    val voiceChatState by voiceChatViewModel.voiceChatState.collectAsStateWithLifecycle()
+    val voicePermissionNeeded by voiceChatViewModel.voicePermissionNeeded.collectAsStateWithLifecycle()
+    val peerConnected by voiceChatViewModel.peerConnected.collectAsStateWithLifecycle()
     val isRemoteSpeaking by voiceChatViewModel.isRemoteSpeaking.collectAsStateWithLifecycle()
     val headphonesConnected by voiceChatViewModel.headphonesConnected.collectAsStateWithLifecycle()
 
     var voiceHasBeenConnected by remember { mutableStateOf(false) }
     var lastHeadphonesState by remember { mutableStateOf(headphonesConnected) }
+    var previousPeerConnected by remember { mutableStateOf(false) }
+    var launchVoiceAfterPermission by remember { mutableStateOf(false) }
+    var permissionPromptFromVoiceActive by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isVoiceConnected, headphonesConnected) {
-        if (isVoiceConnected) {
+    LaunchedEffect(roomCode, currentUserDisplayName, currentUserId) {
+        voiceChatViewModel.prefetchToken(
+            roomCode,
+            currentUserDisplayName,
+            currentUserId
+        )
+        voiceChatViewModel.observeVoiceActive(roomCode)
+    }
+
+    LaunchedEffect(voiceChatState, headphonesConnected) {
+        if (voiceChatState == VoiceChatState.Connected) {
             if (!voiceHasBeenConnected) {
                 voiceHasBeenConnected = true
                 val message = if (headphonesConnected) {
-                    "Voice connected (High-Fidelity stereo mode)"
+                    "Voice connected through headphones"
                 } else {
-                    "Voice connected. Plug in headphones for high-fidelity movie sound!"
+                    "Voice connected through the speaker"
                 }
                 android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
             } else if (headphonesConnected != lastHeadphonesState) {
@@ -116,11 +129,54 @@ fun WatchScreen(
         lastHeadphonesState = headphonesConnected
     }
 
+    LaunchedEffect(peerConnected, voiceChatState) {
+        if (voiceChatState != VoiceChatState.Connected) {
+            previousPeerConnected = false
+        } else {
+            if (previousPeerConnected && !peerConnected) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Peer disconnected from voice chat",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            previousPeerConnected = peerConnected
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted) {
-            voiceChatViewModel.joinRoom(roomCode, currentUserDisplayName, currentUserId)
+        val shouldStartVoice = launchVoiceAfterPermission
+        launchVoiceAfterPermission = false
+        permissionPromptFromVoiceActive = false
+        voiceChatViewModel.clearVoicePermissionRequest()
+        if (isGranted && shouldStartVoice) {
+            voiceChatViewModel.startVoiceForAll()
+        }
+    }
+
+    LaunchedEffect(voicePermissionNeeded) {
+        if (!voicePermissionNeeded) {
+            if (permissionPromptFromVoiceActive) {
+                launchVoiceAfterPermission = false
+                permissionPromptFromVoiceActive = false
+            }
+            return@LaunchedEffect
+        }
+
+        if (
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceChatViewModel.clearVoicePermissionRequest()
+            voiceChatViewModel.startVoiceForAll()
+        } else {
+            launchVoiceAfterPermission = true
+            permissionPromptFromVoiceActive = true
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -370,21 +426,31 @@ fun WatchScreen(
                 durationMs = durationMs,
                 allowControls = allowControls,
                 hasUnread = hasUnread,
-                isVoiceConnected = isVoiceConnected,
-                isVoiceMuted = isVoiceMuted,
-                onToggleVoice = {
-                    if (isVoiceConnected) {
-                        voiceChatViewModel.toggleMute()
-                    } else {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                            voiceChatViewModel.joinRoom(roomCode, currentUserDisplayName, currentUserId)
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                voiceChatState = voiceChatState,
+                onMicClick = {
+                    when (voiceChatState) {
+                        VoiceChatState.Disconnected -> {
+                            voiceChatViewModel.prefetchToken(
+                                roomCode,
+                                currentUserDisplayName,
+                                currentUserId
+                            )
+                            if (
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                voiceChatViewModel.startVoiceForAll()
+                            } else {
+                                launchVoiceAfterPermission = true
+                                permissionPromptFromVoiceActive = false
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         }
+                        VoiceChatState.Connecting -> Unit
+                        VoiceChatState.Connected -> voiceChatViewModel.stopVoiceForAll()
                     }
-                },
-                onDisconnectVoice = {
-                    voiceChatViewModel.leaveRoom()
                 },
                 onToggleControls = viewModel::toggleControls,
                 onToggleChat = { showChat = !showChat },

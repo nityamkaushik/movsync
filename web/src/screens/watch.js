@@ -9,6 +9,7 @@ import * as syncEngine from '../sync-engine.js';
 import * as firebaseSync from '../firebase-sync.js';
 import { leaveRoom, getRoomByCode } from '../room-repository.js';
 import { createChatUI } from '../components/chat.js';
+import * as voiceChat from '../voice-chat.js';
 
 let userId = null;
 let roomData = null;
@@ -28,6 +29,9 @@ let subtitleCues = [];
 let subtitlesEnabled = false;
 let currentSubtitle = '';
 let showRemainingTime = false;
+let unsubVoiceState = null;
+let unsubVoicePeer = null;
+let voicePeerWasConnected = false;
 
 // MKV Integration Variables
 let libavWorker = null;
@@ -70,6 +74,7 @@ export function renderWatch(container, { code, isHost }) {
 
       <!-- Unread Indicator (when controls hidden) -->
       <div class="video-unread-dot" id="videoUnreadDot" style="display:none;"></div>
+      <div class="watch-toast" id="watchToast" role="status" aria-live="polite"></div>
 
       <!-- Controls Overlay -->
       <div class="watch-overlay" id="watchOverlay">
@@ -95,6 +100,9 @@ export function renderWatch(container, { code, isHost }) {
             <button class="btn-icon-watch" id="chatToggleBtn" title="Chat">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               <span class="chat-badge" id="chatBadge" style="display:none;">!</span>
+            </button>
+            <button class="btn-icon-watch voice-mic-btn voice-disconnected" id="voiceMicBtn" title="Join Voice Chat">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
             </button>
             <button class="btn-icon-watch" id="leaveBtn" title="Leave">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -252,6 +260,8 @@ async function init(container, roomCode, isHost) {
     if (syncChip) syncChip.style.display = 'none';
     const chatToggleBtn = container.querySelector('#chatToggleBtn');
     if (chatToggleBtn) chatToggleBtn.style.display = 'none';
+    const voiceMicBtn = container.querySelector('#voiceMicBtn');
+    if (voiceMicBtn) voiceMicBtn.style.display = 'none';
     const toggleControlsBtn = container.querySelector('#toggleControlsBtn');
     if (toggleControlsBtn) toggleControlsBtn.style.display = 'none';
     
@@ -269,6 +279,9 @@ async function init(container, roomCode, isHost) {
 
   userId = await ensureSignedIn();
   roomData = await getRoomByCode(roomCode);
+  voiceChat.prefetchToken(roomCode, getDisplayName() || 'User', userId);
+  voiceChat.startObservingVoiceActive(roomCode);
+  setupVoiceChat(container);
 
   // Start sync engine
   syncEngine.start({
@@ -536,6 +549,20 @@ function setupEventListeners(container, roomCode, isHost) {
     updateChatIndicators(container);
   });
 
+  container.querySelector('#voiceMicBtn')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      if (voiceChat.getState() === 'disconnected') {
+        await voiceChat.startVoiceForAll();
+      } else if (voiceChat.getState() === 'connected') {
+        await voiceChat.stopVoiceForAll();
+      }
+    } catch (error) {
+      console.error('Voice chat connection failed:', error);
+      showWatchToast(container, 'Unable to connect to voice chat');
+    }
+  });
+
   // Leave
   container.querySelector('#leaveBtn').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -750,12 +777,57 @@ function renderWatchChat(container, roomCode) {
   });
 }
 
+function setupVoiceChat(container) {
+  unsubVoiceState?.();
+  unsubVoicePeer?.();
+  voicePeerWasConnected = false;
+
+  unsubVoiceState = voiceChat.onStateChange((voiceState) => {
+    const button = container.querySelector('#voiceMicBtn');
+    if (!button) return;
+
+    button.classList.remove('voice-disconnected', 'voice-connecting', 'voice-connected');
+    button.classList.add(`voice-${voiceState}`);
+    button.disabled = voiceState === 'connecting';
+    button.title = voiceState === 'connected'
+      ? 'Disconnect Voice Chat'
+      : voiceState === 'connecting'
+        ? 'Connecting to Voice Chat'
+        : 'Join Voice Chat';
+
+    if (voiceState !== 'connected') {
+      voicePeerWasConnected = false;
+    }
+  });
+
+  unsubVoicePeer = voiceChat.onPeerChange((connected) => {
+    if (voiceChat.getState() === 'connected' && voicePeerWasConnected && !connected) {
+      showWatchToast(container, 'Peer disconnected from voice chat');
+    }
+    voicePeerWasConnected = connected;
+  });
+}
+
+function showWatchToast(container, message) {
+  const toast = container.querySelector('#watchToast');
+  if (!toast) return;
+
+  toast.textContent = message;
+  toast.classList.add('visible');
+  clearTimeout(toast._hideTimeout);
+  toast._hideTimeout = setTimeout(() => toast.classList.remove('visible'), 2500);
+}
+
 function cleanup(roomCode) {
   syncEngine.stop(roomCode);
   if (unsubChat) { unsubChat(); unsubChat = null; }
   if (unsubAllowControls) { unsubAllowControls(); unsubAllowControls = null; }
   if (controlsTimeout) { clearTimeout(controlsTimeout); controlsTimeout = null; }
   if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+  if (unsubVoiceState) { unsubVoiceState(); unsubVoiceState = null; }
+  if (unsubVoicePeer) { unsubVoicePeer(); unsubVoicePeer = null; }
+  voicePeerWasConnected = false;
+  void voiceChat.cleanup();
 
   const watchScreen = document.querySelector('#watchScreen');
   if (watchScreen?._keyHandler) {

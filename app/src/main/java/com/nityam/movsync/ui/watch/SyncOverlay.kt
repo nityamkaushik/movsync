@@ -1,5 +1,10 @@
 package com.nityam.movsync.ui.watch
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,8 +18,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
@@ -66,10 +69,8 @@ fun SyncOverlay(
     durationMs: Long,
     allowControls: Boolean,
     hasUnread: Boolean,
-    isVoiceConnected: Boolean,
-    isVoiceMuted: Boolean,
-    onToggleVoice: () -> Unit,
-    onDisconnectVoice: () -> Unit,
+    voiceChatState: VoiceChatState,
+    onMicClick: () -> Unit,
     onToggleControls: () -> Unit,
     onToggleChat: () -> Unit,
     onPlayPause: () -> Unit,
@@ -132,29 +133,35 @@ fun SyncOverlay(
                         Icon(Icons.Default.Chat, contentDescription = "Chat", tint = Color.White)
                     }
                 }
-                if (isVoiceConnected) {
-                    IconButton(onClick = onToggleVoice) {
-                        Icon(
-                            if (isVoiceMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = "Mute or unmute microphone",
-                            tint = if (isVoiceMuted) Color.White.copy(alpha = 0.5f) else Color.Green
-                        )
-                    }
-                    IconButton(onClick = onDisconnectVoice) {
-                        Icon(
-                            Icons.Default.CallEnd,
-                            contentDescription = "Disconnect voice chat",
-                            tint = Color.Red
-                        )
-                    }
-                } else {
-                    IconButton(onClick = onToggleVoice) {
-                        Icon(
-                            Icons.Default.MicOff,
-                            contentDescription = "Join voice chat",
-                            tint = Color.White
-                        )
-                    }
+                val micTransition = rememberInfiniteTransition(label = "voice mic")
+                val connectingAlpha by micTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 0.3f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 600),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "voice mic alpha"
+                )
+                val micTint = when (voiceChatState) {
+                    VoiceChatState.Disconnected -> Color.White
+                    VoiceChatState.Connecting -> Color.Green.copy(alpha = connectingAlpha)
+                    VoiceChatState.Connected -> Color.Red
+                }
+                val micDescription = when (voiceChatState) {
+                    VoiceChatState.Disconnected -> "Join voice chat"
+                    VoiceChatState.Connecting -> "Connecting to voice chat"
+                    VoiceChatState.Connected -> "Disconnect voice chat"
+                }
+                IconButton(
+                    onClick = onMicClick,
+                    enabled = voiceChatState != VoiceChatState.Connecting
+                ) {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = micDescription,
+                        tint = micTint
+                    )
                 }
                 IconButton(onClick = onLeave) {
                     Icon(Icons.Default.Close, contentDescription = "Leave", tint = Color.White)

@@ -13,6 +13,7 @@ sealed interface HomeUpdateState {
     data class Available(val downloadUrl: String, val latestVersion: String) : HomeUpdateState
     data class Downloading(val progress: Float) : HomeUpdateState
     data object Installing : HomeUpdateState
+    data class ReadyToInstall(val apkFile: java.io.File, val latestVersion: String) : HomeUpdateState
     data object Failed : HomeUpdateState
 }
 
@@ -36,7 +37,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val info = updateManager.checkForUpdates()
-            if (info.isUpdateAvailable && info.downloadUrl != null) {
+            if (info.downloadedApkFile != null) {
+                _updateState.value = HomeUpdateState.ReadyToInstall(info.downloadedApkFile, info.latestVersion)
+            } else if (info.isUpdateAvailable && info.downloadUrl != null) {
                 _updateState.value = HomeUpdateState.Available(info.downloadUrl, info.latestVersion)
             }
         }
@@ -52,18 +55,26 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (currentState !is HomeUpdateState.Available) return
         
         val url = currentState.downloadUrl
+        val version = currentState.latestVersion
         viewModelScope.launch {
             _updateState.value = HomeUpdateState.Downloading(0f)
-            val success = updateManager.downloadAndInstallUpdate(url) { progress ->
+            val apkFile = updateManager.downloadAndInstallUpdate(url) { progress ->
                 _updateState.value = HomeUpdateState.Downloading(progress)
             }
-            if (success) {
-                _updateState.value = HomeUpdateState.Installing
+            if (apkFile != null) {
+                _updateState.value = HomeUpdateState.ReadyToInstall(apkFile, version)
             } else {
                 _updateState.value = HomeUpdateState.Failed
                 // Revert back so they can try again
                 _updateState.value = currentState
             }
+        }
+    }
+
+    fun installUpdate() {
+        val currentState = _updateState.value
+        if (currentState is HomeUpdateState.ReadyToInstall) {
+            updateManager.triggerInstall(currentState.apkFile)
         }
     }
 }

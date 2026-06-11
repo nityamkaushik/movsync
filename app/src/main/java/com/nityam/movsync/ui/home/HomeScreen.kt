@@ -238,27 +238,44 @@ fun HomeScreen(
                         }
                     }
  
-                    HomeUpdateState.Installing -> {
+                    is HomeUpdateState.ReadyToInstall -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(SoftSurface)
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = CyanAccent,
-                                    strokeWidth = 2.dp
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(SuccessGreen.copy(alpha = 0.3f), CyanAccent.copy(alpha = 0.2f))
+                                    )
                                 )
-                                Spacer(Modifier.width(12.dp))
+                                .clickable { viewModel.installUpdate() }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Rounded.SystemUpdate,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        "Update v${state.latestVersion} ready",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                }
                                 Text(
-                                    "Installing update…",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
+                                    "Install Now →",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = SuccessGreen
                                 )
                             }
                         }

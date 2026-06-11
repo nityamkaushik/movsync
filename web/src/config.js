@@ -10,6 +10,10 @@ export const supabaseConfig = {
   key: import.meta.env.VITE_SUPABASE_KEY || '',
 };
 
+export const livekitConfig = {
+  url: import.meta.env.VITE_LIVEKIT_URL || '',
+};
+
 export function isConfigured() {
   return !!(firebaseConfig.apiKey && firebaseConfig.databaseURL && supabaseConfig.url && supabaseConfig.key);
 }

@@ -77,6 +77,25 @@ class FirebaseSync(
         awaitClose { ref.removeEventListener(listener) }
     }
 
+    suspend fun setVoiceActive(roomCode: String, active: Boolean) {
+        roomRef(roomCode).child("voiceActive").setValue(active).await()
+    }
+
+    fun observeVoiceActive(roomCode: String): Flow<Boolean> = callbackFlow {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                trySend(snapshot.getValue(Boolean::class.java) ?: false)
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                close(error.toException())
+            }
+        }
+        val ref = roomRef(roomCode).child("voiceActive")
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+
     suspend fun writeSyncCommand(roomCode: String, state: SyncState) {
         val payload = mapOf(
             "command" to state.command,

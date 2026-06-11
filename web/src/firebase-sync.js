@@ -45,6 +45,18 @@ export function observeAllowControls(roomCode, callback) {
   return () => off(r);
 }
 
+export async function setVoiceActive(roomCode, active) {
+  await set(childRef(roomCode, 'voiceActive'), active);
+}
+
+export function observeVoiceActive(roomCode, callback) {
+  const r = childRef(roomCode, 'voiceActive');
+  onValue(r, (snapshot) => {
+    callback(snapshot.val() === true);
+  });
+  return () => off(r);
+}
+
 export async function writeSyncCommand(roomCode, state) {
   const payload = {
     command: state.command,
@@ -192,4 +204,5 @@ export function removeAllListeners(roomCode) {
   off(childRef(roomCode, 'chat'));
   off(childRef(roomCode, 'started'));
   off(childRef(roomCode, 'allowControls'));
+  off(childRef(roomCode, 'voiceActive'));
 }
