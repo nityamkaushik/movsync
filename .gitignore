@@ -82,9 +82,7 @@ supabase/.branches/
 # macOS
 .DS_Store
 release_notes.md
-.idea/appInsightsSettings.xml
-.idea/deploymentTargetSelector.xml
-.idea/misc.xml
+.idea/
 app/release/baselineProfiles/0/app-release.dm
 
 app/release/baselineProfiles/1/app-release.dm
