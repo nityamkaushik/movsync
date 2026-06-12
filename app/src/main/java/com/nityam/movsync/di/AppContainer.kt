@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.nityam.movsync.data.firebase.FirebaseSync
+import com.nityam.movsync.data.p2p.FileShareSignaling
+import com.nityam.movsync.data.p2p.WebRTCFileTransfer
 import com.nityam.movsync.data.repository.AuthRepository
 import com.nityam.movsync.data.repository.RoomRepository
 import com.nityam.movsync.data.supabase.SupabaseClientProvider
@@ -18,6 +20,8 @@ class AppContainer(context: Context) {
     val firebaseDatabase: FirebaseDatabase = FirebaseDatabase.getInstance()
 
     val firebaseSync = FirebaseSync(firebaseDatabase, firebaseAuth)
+    val fileShareSignaling = FileShareSignaling(firebaseDatabase)
+    val webrtcFileTransfer = WebRTCFileTransfer(context.applicationContext)
     val authRepository = AuthRepository(context.applicationContext, supabaseClient, firebaseAuth)
     val fileHasher = FileHasher()
     val driftCorrector = DriftCorrector()

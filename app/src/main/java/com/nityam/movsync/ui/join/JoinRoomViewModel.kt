@@ -1,8 +1,6 @@
 package com.nityam.movsync.ui.join
 
 import android.app.Application
-import android.content.Context
-import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nityam.movsync.MovSyncApp
@@ -26,36 +24,31 @@ class JoinRoomViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun joinWithFile(context: Context, uri: Uri) {
+    fun joinRoom() {
         val code = _state.value.code
         if (code.length != 6) {
             _state.value = _state.value.copy(error = "Enter the 6 character room code")
             return
         }
-        _state.value = _state.value.copy(verifying = true, error = null, selectedUri = uri)
+        _state.value = _state.value.copy(joining = true, error = null)
         viewModelScope.launch {
             runCatching {
-                val fingerprint = container.fileHasher.computeQuickFingerprint(context, uri)
                 val userId = container.authRepository.ensureSignedIn()
                 val rawName = container.authRepository.displayName.first()
                 val displayName = rawName.ifBlank { "Movie Friend" }
-                when (val result = container.roomRepository.joinRoom(userId, displayName, code, fingerprint)) {
+                when (val result = container.roomRepository.joinRoom(userId, displayName, code)) {
                     is JoinResult.Joined -> _state.value = _state.value.copy(
-                        verifying = false,
-                        result = JoinResultUi.Joined(result.room, uri)
-                    )
-                    is JoinResult.FingerprintMismatch -> _state.value = _state.value.copy(
-                        verifying = false,
-                        result = JoinResultUi.Mismatch(result.room)
+                        joining = false,
+                        result = JoinResultUi.Joined(result.room)
                     )
                     JoinResult.NotFound -> _state.value = _state.value.copy(
-                        verifying = false,
+                        joining = false,
                         error = "Room not found"
                     )
                 }
             }.onFailure {
                 _state.value = _state.value.copy(
-                    verifying = false,
+                    joining = false,
                     error = it.message ?: "Could not join room"
                 )
             }
@@ -65,13 +58,11 @@ class JoinRoomViewModel(application: Application) : AndroidViewModel(application
 
 data class JoinRoomUiState(
     val code: String = "",
-    val verifying: Boolean = false,
-    val selectedUri: Uri? = null,
+    val joining: Boolean = false,
     val result: JoinResultUi? = null,
     val error: String? = null
 )
 
 sealed interface JoinResultUi {
-    data class Joined(val room: Room, val uri: Uri) : JoinResultUi
-    data class Mismatch(val room: Room) : JoinResultUi
+    data class Joined(val room: Room) : JoinResultUi
 }

@@ -139,6 +139,15 @@ class FirebaseSync(
         presenceRef.child("online").onDisconnect().setValue(false)
     }
 
+    suspend fun setPresenceVerified(roomCode: String, userId: String, verified: Boolean = true) {
+        if (firebaseAuth.currentUser == null) {
+            firebaseAuth.signInAnonymously().await()
+        }
+        val presenceRef = roomRef(roomCode).child("presence").child(userId)
+        presenceRef.child("verified").setValue(verified).await()
+        presenceRef.child("updatedAt").setValue(ServerValue.TIMESTAMP).await()
+    }
+
     suspend fun clearPresence(roomCode: String, userId: String) {
         roomRef(roomCode).child("presence").child(userId).removeValue().await()
     }

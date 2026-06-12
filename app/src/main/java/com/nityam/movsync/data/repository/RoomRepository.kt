@@ -1,6 +1,7 @@
 package com.nityam.movsync.data.repository
 
 import com.nityam.movsync.data.firebase.FirebaseSync
+import com.nityam.movsync.data.model.Participant
 import com.nityam.movsync.data.model.ParticipantInsert
 import com.nityam.movsync.data.model.Room
 import com.nityam.movsync.data.model.RoomInsert
@@ -46,16 +47,40 @@ class RoomRepository(
     suspend fun joinRoom(
         userId: String,
         displayName: String,
-        code: String,
-        fingerprint: String
+        code: String
     ): JoinResult {
         val room = getRoomByCode(code) ?: return JoinResult.NotFound
-        if (room.movieFingerprint != fingerprint) {
-            return JoinResult.FingerprintMismatch(room)
-        }
-        addParticipant(room.id, userId, displayName, isHost = false, verified = true)
-        firebaseSync.trackPresence(room.code, userId, displayName, isHost = false, verified = true)
+        addParticipant(room.id, userId, displayName, isHost = false, verified = false)
+        firebaseSync.trackPresence(room.code, userId, displayName, isHost = false, verified = false)
         return JoinResult.Joined(room)
+    }
+
+    suspend fun verifyParticipant(roomId: String, roomCode: String, userId: String) {
+        val participant = supabase.from("participants")
+            .select {
+                filter {
+                    eq("room_id", roomId)
+                    eq("user_id", userId)
+                }
+                limit(1)
+            }
+            .decodeList<Participant>()
+            .firstOrNull()
+            ?: error("Participant not found")
+
+        supabase.from("participants").upsert(
+            ParticipantInsert(
+                roomId = roomId,
+                userId = userId,
+                displayName = participant.displayName,
+                isHost = participant.isHost,
+                fingerprintVerified = true,
+                fullHashVerified = participant.fullHashVerified
+            )
+        ) {
+            onConflict = "room_id, user_id"
+        }
+        firebaseSync.setPresenceVerified(roomCode, userId, true)
     }
 
     suspend fun getRoomByCode(code: String): Room? {
@@ -107,6 +132,5 @@ class RoomRepository(
 
 sealed interface JoinResult {
     data class Joined(val room: Room) : JoinResult
-    data class FingerprintMismatch(val room: Room) : JoinResult
     data object NotFound : JoinResult
 }

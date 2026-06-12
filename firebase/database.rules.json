@@ -4,6 +4,18 @@
       "rooms": {
         "$roomCode": {
           ".read": true,
+          "createdAt": {
+            ".write": "auth != null"
+          },
+          "started": {
+            ".write": "auth != null"
+          },
+          "allowControls": {
+            ".write": "auth != null"
+          },
+          "voiceActive": {
+            ".write": "auth != null"
+          },
           "sync": {
             ".write": true,
             ".validate": "newData.hasChildren(['command', 'position', 'timestamp', 'senderId'])"
@@ -14,7 +26,22 @@
           },
           "presence": {
             "$userId": {
-              ".write": "(auth != null && auth.uid == $userId) || !data.exists()",
+              ".write": "auth != null || !data.exists()",
+              ".read": true
+            }
+          },
+          "chat": {
+            "$messageId": {
+              ".write": true
+            }
+          },
+          "fileShare": {
+            ".write": "auth != null",
+            ".read": true
+          },
+          "signaling": {
+            "$peerId": {
+              ".write": "auth != null",
               ".read": true
             }
           }

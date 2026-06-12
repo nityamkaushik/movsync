@@ -51,8 +51,8 @@ fun NavGraph() {
         composable(Route.Join.path) {
             JoinRoomScreen(
                 onBack = { navController.popBackStack() },
-                onJoined = { code, uri ->
-                    navController.navigate(Route.Lobby.create(code, isHost = false, uri = uri))
+                onJoined = { code ->
+                    navController.navigate(Route.Lobby.create(code, isHost = false, uri = null))
                 }
             )
         }
@@ -67,15 +67,14 @@ fun NavGraph() {
             val roomCode = entry.arguments?.getString("roomCode").orEmpty()
             val isHost = entry.arguments?.getBoolean("isHost") ?: false
             val uriBase64 = entry.arguments?.getString("uri").orEmpty()
-            val uriString = String(android.util.Base64.decode(uriBase64, android.util.Base64.URL_SAFE))
-            val uri = Uri.parse(uriString)
+            val uri = decodeUriOrNull(uriBase64)
             LobbyScreen(
                 roomCode = roomCode,
                 isHost = isHost,
                 videoUri = uri,
                 onBack = { navController.popBackStack(Route.Home.path, inclusive = false) },
-                onStartWatching = {
-                    navController.navigate(Route.Watch.create(roomCode, isHost, uri))
+                onStartWatching = { watchUri ->
+                    navController.navigate(Route.Watch.create(roomCode, isHost, watchUri))
                 }
             )
         }
@@ -90,7 +89,7 @@ fun NavGraph() {
             WatchScreen(
                 roomCode = entry.arguments?.getString("roomCode").orEmpty(),
                 isHost = entry.arguments?.getBoolean("isHost") ?: false,
-                videoUri = Uri.parse(String(android.util.Base64.decode(entry.arguments?.getString("uri").orEmpty(), android.util.Base64.URL_SAFE))),
+                videoUri = decodeUriOrNull(entry.arguments?.getString("uri").orEmpty()) ?: Uri.EMPTY,
                 onLeave = { navController.popBackStack(Route.Home.path, inclusive = false) }
             )
         }
@@ -101,7 +100,7 @@ fun NavGraph() {
             )
         ) { entry ->
             LocalWatchScreen(
-                videoUri = Uri.parse(String(android.util.Base64.decode(entry.arguments?.getString("uri").orEmpty(), android.util.Base64.URL_SAFE))),
+                videoUri = decodeUriOrNull(entry.arguments?.getString("uri").orEmpty()) ?: Uri.EMPTY,
                 onLeave = { navController.popBackStack() }
             )
         }
@@ -129,31 +128,41 @@ sealed class Route(val path: String) {
     data object Home : Route("home")
     data object Create : Route("create/{uri}") {
         fun create(uri: Uri): String {
-            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
-            return "create/$b64"
+            return "create/${encodeUri(uri)}"
         }
     }
     data object Join : Route("join")
     data object Lobby : Route("lobby/{roomCode}/{isHost}/{uri}") {
-        fun create(code: String, isHost: Boolean, uri: Uri): String {
-            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
-            return "lobby/$code/$isHost/$b64"
+        fun create(code: String, isHost: Boolean, uri: Uri?): String {
+            return "lobby/$code/$isHost/${uri?.let(::encodeUri) ?: NO_URI}"
         }
     }
     data object Watch : Route("watch/{roomCode}/{isHost}/{uri}") {
         fun create(code: String, isHost: Boolean, uri: Uri): String {
-            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
-            return "watch/$code/$isHost/$b64"
+            return "watch/$code/$isHost/${encodeUri(uri)}"
         }
     }
     data object LocalWatch : Route("localWatch/{uri}") {
         fun create(uri: Uri): String {
-            val b64 = android.util.Base64.encodeToString(uri.toString().toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
-            return "localWatch/$b64"
+            return "localWatch/${encodeUri(uri)}"
         }
     }
     data object About : Route("about")
     data object Help : Route("help")
     data object PrivacyPolicy : Route("privacy")
     data object Settings : Route("settings")
+}
+
+private const val NO_URI = "-"
+
+private fun encodeUri(uri: Uri): String {
+    return android.util.Base64.encodeToString(
+        uri.toString().toByteArray(),
+        android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
+    )
+}
+
+private fun decodeUriOrNull(value: String): Uri? {
+    if (value.isBlank() || value == NO_URI) return null
+    return Uri.parse(String(android.util.Base64.decode(value, android.util.Base64.URL_SAFE)))
 }

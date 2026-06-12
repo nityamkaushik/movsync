@@ -137,6 +137,12 @@ export async function trackPresence(roomCode, userId, displayName, isHost, verif
   await disc.set(false);
 }
 
+export async function setPresenceVerified(roomCode, userId, verified = true) {
+  await ensureFirebaseAuth();
+  await set(childRef(roomCode, `presence/${userId}/verified`), verified);
+  await set(childRef(roomCode, `presence/${userId}/updatedAt`), serverTimestamp());
+}
+
 export async function clearPresence(roomCode, userId) {
   await remove(childRef(roomCode, `presence/${userId}`));
 }
@@ -205,4 +211,6 @@ export function removeAllListeners(roomCode) {
   off(childRef(roomCode, 'started'));
   off(childRef(roomCode, 'allowControls'));
   off(childRef(roomCode, 'voiceActive'));
+  off(childRef(roomCode, 'fileShare'));
+  off(childRef(roomCode, 'signaling'));
 }

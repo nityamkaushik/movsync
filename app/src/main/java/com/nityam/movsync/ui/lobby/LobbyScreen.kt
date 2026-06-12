@@ -1,6 +1,9 @@
 package com.nityam.movsync.ui.lobby
 
+import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -22,6 +25,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,24 +40,30 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.scale
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LobbyScreen(
     roomCode: String,
     isHost: Boolean,
-    videoUri: Uri,
+    videoUri: Uri?,
     onBack: () -> Unit,
-    onStartWatching: () -> Unit,
-    viewModel: LobbyViewModel = viewModel()
+    onStartWatching: (Uri) -> Unit,
+    viewModel: LobbyViewModel = viewModel(),
+    fileShareViewModel: LobbyFileShareViewModel = viewModel()
 ) {
     BackHandler {
         onBack()
     }
 
+    val context = LocalContext.current
     val participants by viewModel.participants.collectAsStateWithLifecycle()
     val started by viewModel.started.collectAsStateWithLifecycle()
+    val fileShareState by fileShareViewModel.state.collectAsStateWithLifecycle()
+    val verifiedVideoUri by fileShareViewModel.videoUri.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
     val pulse by rememberInfiniteTransition(label = "waitingPulse").animateFloat(
         initialValue = 0.4f,
         targetValue = 1f,
@@ -64,15 +74,40 @@ fun LobbyScreen(
     val chatViewModel: ChatViewModel = viewModel()
     val chatMessages by chatViewModel.messages.collectAsStateWithLifecycle()
     val currentUserId = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                // Some providers grant only transient access; verification can still proceed.
+            }
+            fileShareViewModel.selectFile(context, it, roomCode)
+        }
+    }
 
     LaunchedEffect(roomCode) {
         viewModel.observe(roomCode)
         chatViewModel.start(roomCode)
+        fileShareViewModel.observeFileShare(roomCode, isHost)
     }
 
     LaunchedEffect(started) {
         if (started && !isHost) {
-            onStartWatching()
+            val watchUri = verifiedVideoUri ?: videoUri
+            if (watchUri != null) {
+                onStartWatching(watchUri)
+            } else {
+                snackbarHostState.showSnackbar("Select or download the movie file first")
+            }
+        }
+    }
+
+    DisposableEffect(roomCode) {
+        onDispose {
+            fileShareViewModel.cleanup()
         }
     }
 
@@ -135,6 +170,24 @@ fun LobbyScreen(
             ) {
                 RoomCodeDisplay(roomCode, snackbarHostState)
 
+                FileShareSection(
+                    isHost = isHost,
+                    fileShareState = fileShareState,
+                    onShareClick = {
+                        val uri = videoUri
+                        if (uri != null) {
+                            fileShareViewModel.startSharing(roomCode, uri)
+                        } else {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Host file unavailable in this session")
+                            }
+                        }
+                    },
+                    onDownloadClick = { fileShareViewModel.startDownload(roomCode) },
+                    onSelectFileClick = { filePicker.launch(arrayOf("video/*")) },
+                    onCancelDownload = fileShareViewModel::cancelDownload
+                )
+
                 // Start button / Waiting Card (Permanently above participants, directly below the room code)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -157,8 +210,15 @@ fun LobbyScreen(
                             IconButton(
                                 onClick = {
                                     if (canStart) {
-                                        viewModel.startRoom(roomCode)
-                                        onStartWatching()
+                                        val watchUri = videoUri ?: verifiedVideoUri
+                                        if (watchUri != null) {
+                                            viewModel.startRoom(roomCode)
+                                            onStartWatching(watchUri)
+                                        } else {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Host file unavailable in this session")
+                                            }
+                                        }
                                     }
                                 },
                                 enabled = canStart,

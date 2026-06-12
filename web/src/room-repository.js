@@ -43,18 +43,26 @@ export async function createRoom(hostId, displayName, fingerprint, movieName, du
   throw new Error('Could not generate a unique room code');
 }
 
-export async function joinRoom(userId, displayName, code, fingerprint) {
+export async function joinRoom(userId, displayName, code) {
   const room = await getRoomByCode(code);
   if (!room) return { result: 'not_found' };
 
-  if (room.movie_fingerprint !== fingerprint) {
-    return { result: 'fingerprint_mismatch', room };
-  }
-
-  await addParticipant(room.id, userId, displayName, false, true);
-  await firebaseSync.trackPresence(room.code, userId, displayName, false, true);
+  await addParticipant(room.id, userId, displayName, false, false);
+  await firebaseSync.trackPresence(room.code, userId, displayName, false, false);
 
   return { result: 'joined', room };
+}
+
+export async function verifyParticipant(roomId, roomCode, userId) {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('participants')
+    .update({ fingerprint_verified: true })
+    .eq('room_id', roomId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  await firebaseSync.setPresenceVerified(roomCode, userId, true);
 }
 
 export async function getRoomByCode(code) {

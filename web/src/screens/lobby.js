@@ -1,19 +1,35 @@
 /**
- * Lobby Screen — Port of LobbyScreen.kt + LobbyViewModel.kt
+ * Lobby Screen
  */
 
 import { navigate } from '../router.js';
 import * as firebaseSync from '../firebase-sync.js';
 import { ensureSignedIn, getDisplayName } from '../auth.js';
+import { computeQuickFingerprint } from '../file-hasher.js';
+import { getRoomByCode, verifyParticipant } from '../room-repository.js';
 import { createRoomCodeDisplay } from '../components/room-code-display.js';
 import { createParticipantAvatar } from '../components/participant-avatar.js';
 import { createChatUI } from '../components/chat.js';
+import { observeFileShare, publishFileShare } from '../firebase-file-share.js';
+import { WebRTCFileLeecher, WebRTCFileSeeder, formatBytes } from '../webrtc-file-transfer.js';
 
 let unsubPresence = null;
 let unsubStarted = null;
 let unsubChat = null;
+let unsubFileShare = null;
 let currentMessages = [];
 let currentUserId = null;
+let currentRoom = null;
+let currentFileShare = null;
+let fileSeeder = null;
+let fileLeecher = null;
+let localFileState = {
+  status: 'idle',
+  message: '',
+  progress: 0,
+  bytesReceived: 0,
+  totalBytes: 0,
+};
 
 export function renderLobby(container, { code, isHost }) {
   const isHostBool = isHost === 'true';
@@ -21,13 +37,15 @@ export function renderLobby(container, { code, isHost }) {
   container.innerHTML = `
     <div class="screen-container lobby-screen">
       <div class="screen-header">
-        <button class="btn-icon" id="lobbyBackBtn">
+        <button class="btn-icon" id="lobbyBackBtn" aria-label="Back">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         </button>
         <h2 class="screen-title">Lobby</h2>
       </div>
 
       <div id="roomCodeContainer"></div>
+      <div id="fileShareContainer"></div>
+      <input type="file" id="lobbyFileInput" accept="video/*" hidden />
 
       <div class="glass-card lobby-participants-card">
         <h3 class="participants-title">Participants</h3>
@@ -55,7 +73,6 @@ export function renderLobby(container, { code, isHost }) {
     </div>
   `;
 
-  // Room code display
   createRoomCodeDisplay(container.querySelector('#roomCodeContainer'), code);
 
   container.querySelector('#lobbyBackBtn').addEventListener('click', () => {
@@ -63,7 +80,13 @@ export function renderLobby(container, { code, isHost }) {
     navigate('#/');
   });
 
-  // Initialize
+  const fileInput = container.querySelector('#lobbyFileInput');
+  fileInput.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (file) await verifyFile(container, code, file);
+    fileInput.value = '';
+  });
+
   init(container, code, isHostBool);
 
   return cleanup;
@@ -71,29 +94,45 @@ export function renderLobby(container, { code, isHost }) {
 
 async function init(container, roomCode, isHost) {
   currentUserId = await ensureSignedIn();
+  currentRoom = await getRoomByCode(roomCode);
+  renderFileShare(container, roomCode, isHost);
 
-  // Listen to presence
+  unsubFileShare = observeFileShare(roomCode, (fileShare) => {
+    currentFileShare = fileShare;
+    if (localFileState.status === 'idle') {
+      localFileState = { ...localFileState, message: '' };
+    }
+    renderFileShare(container, roomCode, isHost);
+  });
+
   unsubPresence = firebaseSync.observePresence(roomCode, (users) => {
     renderParticipants(container, users, isHost);
   });
 
-  // Listen to room started (for participants)
   if (!isHost) {
     unsubStarted = firebaseSync.observeRoomStarted(roomCode, (started) => {
-      if (started) {
-        cleanup();
-        navigate(`#/watch/${roomCode}/false`);
+      if (!started) return;
+      if (!window.__movsync_videoUrl) {
+        localFileState = {
+          status: 'error',
+          message: 'The room started, but this device has not verified a file yet.',
+          progress: 0,
+          bytesReceived: 0,
+          totalBytes: 0,
+        };
+        renderFileShare(container, roomCode, isHost);
+        return;
       }
+      cleanup();
+      navigate(`#/watch/${roomCode}/false`);
     });
   }
 
-  // Listen to chat
   unsubChat = firebaseSync.observeChatMessages(roomCode, (messages) => {
     currentMessages = messages;
     renderChat(container, roomCode);
   });
 
-  // Host start button
   if (isHost) {
     const startBtn = container.querySelector('#startWatchingBtn');
     startBtn?.addEventListener('click', async () => {
@@ -101,6 +140,293 @@ async function init(container, roomCode, isHost) {
       cleanup();
       navigate(`#/watch/${roomCode}/true`);
     });
+  }
+}
+
+function renderFileShare(container, roomCode, isHost) {
+  const hostFile = window.__movsync_file;
+  const root = container.querySelector('#fileShareContainer');
+  if (!root) return;
+
+  if (isHost) {
+    const isSharing = Boolean(currentFileShare);
+    root.innerHTML = `
+      <div class="glass-card file-share-card">
+        <div class="file-share-header">
+          <div>
+            <h3 class="file-share-title">Movie Sharing</h3>
+            <p class="file-share-subtitle">
+              ${isSharing
+                ? `Sharing ${escapeHtml(currentFileShare.fileName)} (${formatBytes(currentFileShare.fileSize)})`
+                : hostFile
+                  ? `Ready to share ${escapeHtml(hostFile.name)} (${formatBytes(hostFile.size)})`
+                  : 'Return to Create Room to select a movie file.'}
+            </p>
+          </div>
+          <span class="file-share-pill ${isSharing ? 'pill-live' : ''}">${isSharing ? 'Live' : 'Off'}</span>
+        </div>
+        ${isSharing
+          ? `<p class="file-share-status">${escapeHtml(localFileState.message || 'Guests can now download directly from this device.')}</p>`
+          : `<button class="btn btn-outline" id="shareFileBtn" ${hostFile ? '' : 'disabled'}>
+               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+               Share File
+             </button>`}
+      </div>
+    `;
+
+    root.querySelector('#shareFileBtn')?.addEventListener('click', () => startSharing(container, roomCode));
+    return;
+  }
+
+  const verified = Boolean(window.__movsync_videoUrl);
+  const progressPercent = localFileState.totalBytes
+    ? Math.round((localFileState.bytesReceived / localFileState.totalBytes) * 100)
+    : Math.round(localFileState.progress * 100);
+
+  root.innerHTML = `
+    <div class="glass-card file-share-card">
+      <div class="file-share-header">
+        <div>
+          <h3 class="file-share-title">Movie File</h3>
+          <p class="file-share-subtitle">
+            ${currentFileShare
+              ? `${escapeHtml(currentFileShare.fileName)} (${formatBytes(currentFileShare.fileSize)})`
+              : 'Waiting for host to share a movie...'}
+          </p>
+        </div>
+        <span class="file-share-pill ${verified ? 'pill-live' : ''}">${verified ? 'Verified' : 'Needed'}</span>
+      </div>
+
+      ${renderGuestFileControls(Boolean(currentFileShare), verified, progressPercent)}
+    </div>
+  `;
+
+  root.querySelector('#downloadFileBtn')?.addEventListener('click', () => startDownload(container, roomCode));
+  root.querySelector('#selectLocalFileBtn')?.addEventListener('click', () => {
+    container.querySelector('#lobbyFileInput')?.click();
+  });
+}
+
+function renderGuestFileControls(hasShare, verified, progressPercent) {
+  if (verified) {
+    return `<p class="file-share-status success">File verified. You are ready to watch.</p>`;
+  }
+
+  if (localFileState.status === 'downloading' || localFileState.status === 'verifying') {
+    const text = localFileState.status === 'verifying'
+      ? 'Verifying selected file...'
+      : `${formatBytes(localFileState.bytesReceived)} / ${formatBytes(localFileState.totalBytes)}`;
+    return `
+      <p class="file-share-status">${escapeHtml(localFileState.message || text)}</p>
+      <div class="download-progress-bar">
+        <div class="download-progress-fill" style="width:${Math.max(0, Math.min(progressPercent, 100))}%"></div>
+      </div>
+    `;
+  }
+
+  const error = localFileState.status === 'error'
+    ? `<p class="file-share-status error">${escapeHtml(localFileState.message)}</p>`
+    : localFileState.message
+      ? `<p class="file-share-status">${escapeHtml(localFileState.message)}</p>`
+      : '';
+
+  return `
+    ${error}
+    <div class="file-share-actions">
+      <button class="btn btn-gradient" id="downloadFileBtn" ${hasShare ? '' : 'disabled'}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download
+      </button>
+      <button class="btn btn-outline" id="selectLocalFileBtn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Select File
+      </button>
+    </div>
+  `;
+}
+
+async function startSharing(container, roomCode) {
+  const file = window.__movsync_file;
+  if (!file) {
+    localFileState = {
+      status: 'error',
+      message: 'No host file is available in this browser session.',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: 0,
+    };
+    renderFileShare(container, roomCode, true);
+    return;
+  }
+
+  try {
+    localFileState = {
+      status: 'sharing',
+      message: 'Starting P2P sharing...',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: file.size,
+    };
+    renderFileShare(container, roomCode, true);
+
+    await publishFileShare(roomCode, {
+      seederId: currentUserId,
+      fileName: file.name,
+      fileSize: file.size,
+    });
+
+    fileSeeder = new WebRTCFileSeeder({
+      roomCode,
+      file,
+      seederId: currentUserId,
+      onPeerProgress: (peerId, sent, total) => {
+        localFileState = {
+          status: 'sharing',
+          message: `Sending to guest ${peerId.slice(0, 6)}: ${formatBytes(sent)} / ${formatBytes(total)}`,
+          progress: total ? sent / total : 0,
+          bytesReceived: sent,
+          totalBytes: total,
+        };
+        renderFileShare(container, roomCode, true);
+      },
+      onPeerState: (peerId, state) => {
+        localFileState = {
+          ...localFileState,
+          status: 'sharing',
+          message: `${peerId.slice(0, 6)}: ${state}`,
+        };
+        renderFileShare(container, roomCode, true);
+      },
+    });
+    fileSeeder.start();
+  } catch (error) {
+    console.error('[file-share] Could not start sharing:', error);
+    localFileState = {
+      status: 'error',
+      message: error.message || 'Could not start file sharing',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: 0,
+    };
+    renderFileShare(container, roomCode, true);
+  }
+}
+
+async function startDownload(container, roomCode) {
+  if (!currentFileShare) return;
+
+  try {
+    localFileState = {
+      status: 'downloading',
+      message: 'Connecting to host...',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: currentFileShare.fileSize,
+    };
+    renderFileShare(container, roomCode, false);
+
+    fileLeecher = new WebRTCFileLeecher({
+      roomCode,
+      userId: currentUserId,
+      fileName: currentFileShare.fileName,
+      fileSize: currentFileShare.fileSize,
+      onProgress: (received, total) => {
+        localFileState = {
+          status: 'downloading',
+          message: `${formatBytes(received)} / ${formatBytes(total)}`,
+          progress: total ? received / total : 0,
+          bytesReceived: received,
+          totalBytes: total,
+        };
+        renderFileShare(container, roomCode, false);
+      },
+      onState: (message) => {
+        localFileState = {
+          ...localFileState,
+          status: 'downloading',
+          message,
+        };
+        renderFileShare(container, roomCode, false);
+      },
+    });
+
+    const file = await fileLeecher.start();
+    localFileState = {
+      status: 'verifying',
+      message: 'Download complete. Verifying file...',
+      progress: 0,
+      bytesReceived: currentFileShare.fileSize,
+      totalBytes: currentFileShare.fileSize,
+    };
+    renderFileShare(container, roomCode, false);
+    await verifyFile(container, roomCode, file);
+  } catch (error) {
+    console.error('[file-share] Download failed:', error);
+    localFileState = {
+      status: 'error',
+      message: error.message || 'P2P download failed. Try selecting a local file.',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: currentFileShare?.fileSize || 0,
+    };
+    renderFileShare(container, roomCode, false);
+  }
+}
+
+async function verifyFile(container, roomCode, file) {
+  try {
+    localFileState = {
+      status: 'verifying',
+      message: 'Computing fingerprint...',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: file.size,
+    };
+    renderFileShare(container, roomCode, false);
+
+    if (!currentRoom) currentRoom = await getRoomByCode(roomCode);
+    if (!currentRoom?.movie_fingerprint) {
+      throw new Error('This room does not have a movie fingerprint to verify against.');
+    }
+
+    const fingerprint = await computeQuickFingerprint(file, (progress) => {
+      localFileState = {
+        status: 'verifying',
+        message: `Verifying file (${Math.round(progress * 100)}%)`,
+        progress,
+        bytesReceived: Math.round(file.size * progress),
+        totalBytes: file.size,
+      };
+      renderFileShare(container, roomCode, false);
+    });
+
+    if (fingerprint !== currentRoom.movie_fingerprint) {
+      throw new Error('File fingerprint does not match. Select the exact movie file from the host.');
+    }
+
+    await verifyParticipant(currentRoom.id, currentRoom.code, currentUserId);
+    if (window.__movsync_videoUrl) URL.revokeObjectURL(window.__movsync_videoUrl);
+    window.__movsync_file = file;
+    window.__movsync_videoUrl = URL.createObjectURL(file);
+
+    localFileState = {
+      status: 'verified',
+      message: 'File verified. You are ready to watch.',
+      progress: 1,
+      bytesReceived: file.size,
+      totalBytes: file.size,
+    };
+    renderFileShare(container, roomCode, false);
+  } catch (error) {
+    console.error('[file-share] Verification failed:', error);
+    localFileState = {
+      status: 'error',
+      message: error.message || 'Could not verify file',
+      progress: 0,
+      bytesReceived: 0,
+      totalBytes: file?.size || 0,
+    };
+    renderFileShare(container, roomCode, false);
   }
 }
 
@@ -128,10 +454,9 @@ function renderParticipants(container, users, isHost) {
     list.appendChild(item);
   }
 
-  // Update start button (need >= 2 verified)
   if (isHost) {
     const startBtn = container.querySelector('#startWatchingBtn');
-    const verifiedCount = users.filter(u => u.verified).length;
+    const verifiedCount = users.filter((user) => user.verified).length;
     if (startBtn) startBtn.disabled = verifiedCount < 2;
   }
 }
@@ -161,11 +486,23 @@ function cleanup() {
   if (unsubPresence) { unsubPresence(); unsubPresence = null; }
   if (unsubStarted) { unsubStarted(); unsubStarted = null; }
   if (unsubChat) { unsubChat(); unsubChat = null; }
+  if (unsubFileShare) { unsubFileShare(); unsubFileShare = null; }
+  if (fileSeeder) { fileSeeder.stop().catch(() => {}); fileSeeder = null; }
+  if (fileLeecher) { fileLeecher.cleanup().catch(() => {}); fileLeecher = null; }
   currentMessages = [];
+  currentRoom = null;
+  currentFileShare = null;
+  localFileState = {
+    status: 'idle',
+    message: '',
+    progress: 0,
+    bytesReceived: 0,
+    totalBytes: 0,
+  };
 }
 
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str || '';
   return div.innerHTML;
 }
