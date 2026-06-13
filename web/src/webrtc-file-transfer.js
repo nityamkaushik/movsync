@@ -8,11 +8,10 @@ import {
   writeSignalingOffer,
 } from './firebase-file-share.js';
 
-const CHUNK_SIZE = 256 * 1024;
+const CHUNK_SIZE = 1 * 1024 * 1024;
 const SEQ_HEADER_SIZE = 4;
-const BUFFER_HIGH_THRESHOLD = 2 * 1024 * 1024;
+const BUFFER_HIGH_THRESHOLD = 8 * 1024 * 1024;
 const PROGRESS_INTERVAL_MS = 50; // 20fps max
-const MAX_PEERS = 4;
 const RTC_CONFIG = {
   iceServers: [{ urls: [
     'stun:stun.l.google.com:19302',
@@ -61,10 +60,6 @@ export class WebRTCFileSeeder {
     if (!this.file) throw new Error('No file selected to share');
     this.unsubOffers = observeSignalingOffers(this.roomCode, (peerId, offer) => {
       if (peerId === this.seederId || this.peers.has(peerId)) return;
-      if (this.peers.size >= MAX_PEERS) {
-        this.onPeerState(peerId, 'Room sharing limit reached');
-        return;
-      }
       this.acceptPeer(peerId, offer).catch((error) => {
         console.error('[file-share] Seeder peer failed:', error);
         this.onPeerState(peerId, error.message || 'Could not connect');
@@ -191,7 +186,7 @@ export class WebRTCFileLeecher {
     await this.prepareSaveTarget();
 
     this.pc = createPeerConnection();
-    this.channel = this.pc.createDataChannel('movsync-file', { ordered: false });
+    this.channel = this.pc.createDataChannel('movsync-file', { ordered: false, maxRetransmits: 0 });
     this.channel.binaryType = 'arraybuffer';
 
     this.pc.onicecandidate = (event) => {

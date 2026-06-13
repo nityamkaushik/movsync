@@ -17,11 +17,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    private val _currentUserId = MutableStateFlow("")
+    val currentUserId: StateFlow<String> = _currentUserId.asStateFlow()
+
     private var activeRoomCode: String? = null
 
     fun start(roomCode: String) {
         if (activeRoomCode == roomCode) return
         activeRoomCode = roomCode
+        viewModelScope.launch {
+            _currentUserId.value = container.authRepository.ensureSignedIn()
+        }
         viewModelScope.launch {
             container.firebaseSync.observeChatMessages(roomCode).collect {
                 _messages.value = it
@@ -35,6 +41,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         
         viewModelScope.launch {
             val userId = container.authRepository.ensureSignedIn()
+            _currentUserId.value = userId
             val displayName = container.authRepository.displayName.first()
             val message = ChatMessage(
                 senderId = userId,

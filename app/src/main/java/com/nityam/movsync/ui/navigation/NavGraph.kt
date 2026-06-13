@@ -29,6 +29,9 @@ fun NavGraph() {
                 onLocalPlay = { uri -> 
                     navController.navigate(Route.LocalWatch.create(uri))
                 },
+                onRejoinRoom = { code ->
+                    navController.navigate(Route.Lobby.create(code, isHost = false, uri = null))
+                },
                 navController = navController
             )
         }

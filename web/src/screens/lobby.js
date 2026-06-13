@@ -11,6 +11,7 @@ import { createRoomCodeDisplay } from '../components/room-code-display.js';
 import { createParticipantAvatar } from '../components/participant-avatar.js';
 import { createChatUI } from '../components/chat.js';
 import { observeFileShare, publishFileShare } from '../firebase-file-share.js';
+import { saveRecentRoom } from '../recent-room.js';
 import { WebRTCFileLeecher, WebRTCFileSeeder, formatBytes } from '../webrtc-file-transfer.js';
 
 let unsubPresence = null;
@@ -21,6 +22,9 @@ let currentMessages = [];
 let currentUserId = null;
 let currentRoom = null;
 let currentFileShare = null;
+let isLobbyChatOpen = false;
+let lobbyUnreadCount = 0;
+let chatMessagesLoaded = false;
 let fileSeeder = null;
 let fileLeecher = null;
 let localFileState = {
@@ -33,6 +37,9 @@ let localFileState = {
 
 export function renderLobby(container, { code, isHost }) {
   const isHostBool = isHost === 'true';
+  isLobbyChatOpen = false;
+  lobbyUnreadCount = 0;
+  chatMessagesLoaded = false;
 
   container.innerHTML = `
     <div class="screen-container lobby-screen">
@@ -43,18 +50,18 @@ export function renderLobby(container, { code, isHost }) {
         <h2 class="screen-title">Lobby</h2>
       </div>
 
-      <div id="roomCodeContainer"></div>
-      <div id="fileShareContainer"></div>
+      <div id="roomCodeContainer" class="lobby-section stagger-1"></div>
+      <div id="fileShareContainer" class="lobby-section stagger-2"></div>
       <input type="file" id="lobbyFileInput" accept="video/*" hidden />
 
-      <div class="glass-card lobby-participants-card">
+      <div class="glass-card lobby-participants-card lobby-section stagger-3">
         <h3 class="participants-title">Participants</h3>
         <div id="participantsList" class="participants-list">
           <div class="loading-pulse">Waiting for participants...</div>
         </div>
       </div>
 
-      <div id="lobbyAction" class="lobby-action">
+      <div id="lobbyAction" class="lobby-action glass-card lobby-section stagger-4">
         ${isHostBool
           ? `<button class="btn btn-gradient" id="startWatchingBtn" disabled>
                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -67,9 +74,13 @@ export function renderLobby(container, { code, isHost }) {
         }
       </div>
 
-      <div class="lobby-chat-section">
-        <div id="lobbyChatContainer" class="lobby-chat-container"></div>
+      <div id="lobbyChatOverlay" class="lobby-chat-overlay closed" aria-hidden="true">
+        <div id="lobbyChatContainer"></div>
       </div>
+      <button class="lobby-chat-fab" id="lobbyChatFab" type="button" aria-label="Open room chat">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+        <span class="unread-badge" id="lobbyChatBadge" hidden>0</span>
+      </button>
     </div>
   `;
 
@@ -87,6 +98,12 @@ export function renderLobby(container, { code, isHost }) {
     fileInput.value = '';
   });
 
+  container.querySelector('#lobbyChatFab')?.addEventListener('click', () => {
+    isLobbyChatOpen = !isLobbyChatOpen;
+    if (isLobbyChatOpen) lobbyUnreadCount = 0;
+    renderChatWidget(container, code);
+  });
+
   init(container, code, isHostBool);
 
   return cleanup;
@@ -95,6 +112,12 @@ export function renderLobby(container, { code, isHost }) {
 async function init(container, roomCode, isHost) {
   currentUserId = await ensureSignedIn();
   currentRoom = await getRoomByCode(roomCode);
+  await firebaseSync.trackPresence(roomCode, currentUserId, getDisplayName() || 'Movie Friend', isHost, isHost);
+  saveRecentRoom({
+    code: roomCode,
+    movieName: currentRoom?.movie_name,
+    isHost,
+  });
   renderFileShare(container, roomCode, isHost);
 
   unsubFileShare = observeFileShare(roomCode, (fileShare) => {
@@ -129,8 +152,17 @@ async function init(container, roomCode, isHost) {
   }
 
   unsubChat = firebaseSync.observeChatMessages(roomCode, (messages) => {
+    const previousIds = new Set(currentMessages.map((message) => message.messageId));
     currentMessages = messages;
-    renderChat(container, roomCode);
+    if (!chatMessagesLoaded) {
+      chatMessagesLoaded = true;
+    } else if (!isLobbyChatOpen) {
+      const newRemoteCount = messages.filter((message) => (
+        !previousIds.has(message.messageId) && message.senderId !== currentUserId
+      )).length;
+      lobbyUnreadCount += newRemoteCount;
+    }
+    renderChatWidget(container, roomCode);
   });
 
   if (isHost) {
@@ -461,9 +493,21 @@ function renderParticipants(container, users, isHost) {
   }
 }
 
-function renderChat(container, roomCode) {
+function renderChatWidget(container, roomCode) {
+  const overlay = container.querySelector('#lobbyChatOverlay');
+  const fab = container.querySelector('#lobbyChatFab');
+  const badge = container.querySelector('#lobbyChatBadge');
   const chatContainer = container.querySelector('#lobbyChatContainer');
-  if (!chatContainer) return;
+  if (!overlay || !chatContainer || !fab || !badge) return;
+
+  overlay.classList.toggle('open', isLobbyChatOpen);
+  overlay.classList.toggle('closed', !isLobbyChatOpen);
+  overlay.setAttribute('aria-hidden', String(!isLobbyChatOpen));
+  fab.classList.toggle('has-unread', lobbyUnreadCount > 0);
+  badge.hidden = lobbyUnreadCount <= 0;
+  badge.textContent = String(Math.min(lobbyUnreadCount, 99));
+
+  if (!isLobbyChatOpen) return;
 
   createChatUI(chatContainer, {
     messages: currentMessages,
@@ -478,7 +522,12 @@ function renderChat(container, roomCode) {
         message: text,
       });
     },
-    showHeader: false,
+    onClose: () => {
+      isLobbyChatOpen = false;
+      lobbyUnreadCount = 0;
+      renderChatWidget(container, roomCode);
+    },
+    showHeader: true,
   });
 }
 
@@ -492,6 +541,9 @@ function cleanup() {
   currentMessages = [];
   currentRoom = null;
   currentFileShare = null;
+  isLobbyChatOpen = false;
+  lobbyUnreadCount = 0;
+  chatMessagesLoaded = false;
   localFileState = {
     status: 'idle',
     message: '',

@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nityam.movsync.MovSyncApp
+import com.nityam.movsync.data.repository.RecentRoom
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -18,14 +20,18 @@ sealed interface HomeUpdateState {
 }
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
-    private val authRepository = (application as MovSyncApp).container.authRepository
-    private val updateManager = (application as MovSyncApp).container.updateManager
+    private val app = application as MovSyncApp
+    private val authRepository = app.container.authRepository
+    private val recentRoomRepository = app.container.recentRoomRepository
+    private val updateManager = app.container.updateManager
 
     private val _updateState = MutableStateFlow<HomeUpdateState>(HomeUpdateState.Idle)
     val updateState = _updateState.asStateFlow()
 
     private val _displayName = MutableStateFlow("")
     val displayName = _displayName.asStateFlow()
+
+    val recentRoom: StateFlow<RecentRoom?> = recentRoomRepository.recentRoom
 
     init {
         viewModelScope.launch {
@@ -48,6 +54,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun updateDisplayName(name: String) {
         _displayName.value = name
         viewModelScope.launch { authRepository.saveDisplayName(name) }
+    }
+
+    fun clearRecentRoom() {
+        recentRoomRepository.clear()
     }
 
     fun startUpdate() {

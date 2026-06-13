@@ -126,7 +126,10 @@ class WebRTCFileTransfer(private val context: Context) {
         )
         peers[peerId] = pc
 
-        val init = DataChannel.Init().apply { ordered = false }
+        val init = DataChannel.Init().apply {
+            ordered = false
+            maxRetransmits = 0
+        }
         val channel = pc.createDataChannel("movsync-file", init)
         channel.registerObserver(object : DataChannel.Observer {
             override fun onBufferedAmountChange(previousAmount: Long) = Unit
@@ -423,12 +426,12 @@ class WebRTCFileTransfer(private val context: Context) {
     )
 
     companion object {
-        private const val CHUNK_SIZE = 256 * 1024
+        private const val CHUNK_SIZE = 1 * 1024 * 1024
         private const val SEQ_HEADER_SIZE = 4
-        private const val BUFFER_HIGH_THRESHOLD = 2 * 1024 * 1024L
-        private const val BUFFER_LOW_THRESHOLD = 512 * 1024L
-        private const val WRITE_BUFFER_SIZE = 512 * 1024
-        private const val MAX_PEERS = 4
+        private const val BUFFER_HIGH_THRESHOLD = 8 * 1024 * 1024L
+        private const val BUFFER_LOW_THRESHOLD = 2 * 1024 * 1024L
+        private const val WRITE_BUFFER_SIZE = 2 * 1024 * 1024
+        private const val MAX_PEERS = 20
         private const val PROGRESS_INTERVAL_NS = 50_000_000L // 50ms = 20fps max
         private val ICE_SERVERS = listOf(
             "stun:stun.l.google.com:19302",
