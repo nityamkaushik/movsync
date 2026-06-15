@@ -54,7 +54,7 @@ class FileShareSignaling(private val database: FirebaseDatabase) {
                 ?: 0L,
             goFileCode = child("goFileCode").getValue(String::class.java).orEmpty()
         )
-
+    }
 }
 
 data class FileShareInfo(
