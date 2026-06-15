@@ -30,8 +30,8 @@ android {
         applicationId = "com.nityam.movsync"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "1.6.3"
+        versionCode = 20
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
@@ -100,7 +100,6 @@ dependencies {
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.functions)
     implementation(libs.livekit.android)
-    implementation("io.github.webrtc-sdk:android:104.5112.09")
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

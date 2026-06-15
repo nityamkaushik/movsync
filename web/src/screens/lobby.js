@@ -12,7 +12,7 @@ import { createParticipantAvatar } from '../components/participant-avatar.js';
 import { createChatUI } from '../components/chat.js';
 import { observeFileShare, publishFileShare } from '../firebase-file-share.js';
 import { saveRecentRoom } from '../recent-room.js';
-import { WebRTCFileLeecher, WebRTCFileSeeder, formatBytes } from '../webrtc-file-transfer.js';
+import { uploadToGoFile, getDirectDownloadUrl, triggerNativeDownload, formatBytes } from '../gofile-api.js';
 
 let unsubPresence = null;
 let unsubStarted = null;
@@ -25,8 +25,7 @@ let currentFileShare = null;
 let isLobbyChatOpen = false;
 let lobbyUnreadCount = 0;
 let chatMessagesLoaded = false;
-let fileSeeder = null;
-let fileLeecher = null;
+
 let localFileState = {
   status: 'idle',
   message: '',
@@ -189,19 +188,23 @@ function renderFileShare(container, roomCode, isHost) {
             <h3 class="file-share-title">Movie Sharing</h3>
             <p class="file-share-subtitle">
               ${isSharing
-                ? `Sharing ${escapeHtml(currentFileShare.fileName)} (${formatBytes(currentFileShare.fileSize)})`
-                : hostFile
-                  ? `Ready to share ${escapeHtml(hostFile.name)} (${formatBytes(hostFile.size)})`
-                  : 'Return to Create Room to select a movie file.'}
+                ? `Uploaded ${escapeHtml(currentFileShare.fileName)} (${formatBytes(currentFileShare.fileSize)})`
+                : localFileState.status === 'uploading'
+                  ? `Uploading ${escapeHtml(hostFile?.name || '')}… ${localFileState.totalBytes ? Math.round((localFileState.bytesReceived / localFileState.totalBytes) * 100) : 0}%`
+                  : hostFile
+                    ? `Ready to upload ${escapeHtml(hostFile.name)} (${formatBytes(hostFile.size)})`
+                    : 'Return to Create Room to select a movie file.'}
             </p>
           </div>
           <span class="file-share-pill ${isSharing ? 'pill-live' : ''}">${isSharing ? 'Live' : 'Off'}</span>
         </div>
         ${isSharing
-          ? `<p class="file-share-status">${escapeHtml(localFileState.message || 'Guests can now download directly from this device.')}</p>`
-          : `<button class="btn btn-outline" id="shareFileBtn" ${hostFile ? '' : 'disabled'}>
-               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-               Share File
+          ? `<p class="file-share-status">${escapeHtml(localFileState.message || 'Guests can now download this file from the cloud.')}</p>`
+          : localFileState.status === 'uploading'
+            ? `<div class="download-progress-bar"><div class="download-progress-fill" style="width:${localFileState.totalBytes ? Math.round((localFileState.bytesReceived / localFileState.totalBytes) * 100) : 0}%"></div></div>`
+            : `<button class="btn btn-outline" id="shareFileBtn" ${hostFile ? '' : 'disabled'}>
+               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+               Upload to Cloud
              </button>`}
       </div>
     `;
@@ -293,49 +296,53 @@ async function startSharing(container, roomCode) {
 
   try {
     localFileState = {
-      status: 'sharing',
-      message: 'Starting P2P sharing...',
+      status: 'uploading',
+      message: 'Uploading to cloud...',
       progress: 0,
       bytesReceived: 0,
       totalBytes: file.size,
     };
     renderFileShare(container, roomCode, true);
 
+    // Throttle DOM re-renders to once per 250 ms (Issue #6 fix)
+    let lastRenderTime = 0;
+    const result = await uploadToGoFile(file, (uploaded, total) => {
+      localFileState = {
+        status: 'uploading',
+        message: `Uploading ${formatBytes(uploaded)} / ${formatBytes(total)}`,
+        progress: total ? uploaded / total : 0,
+        bytesReceived: uploaded,
+        totalBytes: total,
+      };
+      const now = Date.now();
+      if (now - lastRenderTime > 250) {
+        lastRenderTime = now;
+        renderFileShare(container, roomCode, true);
+      }
+    });
+    // Always render the final state
+    renderFileShare(container, roomCode, true);
+
     await publishFileShare(roomCode, {
       seederId: currentUserId,
       fileName: file.name,
       fileSize: file.size,
+      goFileCode: result.fileCode,
     });
 
-    fileSeeder = new WebRTCFileSeeder({
-      roomCode,
-      file,
-      seederId: currentUserId,
-      onPeerProgress: (peerId, sent, total) => {
-        localFileState = {
-          status: 'sharing',
-          message: `Sending to guest ${peerId.slice(0, 6)}: ${formatBytes(sent)} / ${formatBytes(total)}`,
-          progress: total ? sent / total : 0,
-          bytesReceived: sent,
-          totalBytes: total,
-        };
-        renderFileShare(container, roomCode, true);
-      },
-      onPeerState: (peerId, state) => {
-        localFileState = {
-          ...localFileState,
-          status: 'sharing',
-          message: `${peerId.slice(0, 6)}: ${state}`,
-        };
-        renderFileShare(container, roomCode, true);
-      },
-    });
-    fileSeeder.start();
+    localFileState = {
+      status: 'sharing',
+      message: 'Upload complete. Guests can now download.',
+      progress: 1,
+      bytesReceived: file.size,
+      totalBytes: file.size,
+    };
+    renderFileShare(container, roomCode, true);
   } catch (error) {
-    console.error('[file-share] Could not start sharing:', error);
+    console.error('[file-share] Could not upload file:', error);
     localFileState = {
       status: 'error',
-      message: error.message || 'Could not start file sharing',
+      message: error.message || 'Could not upload file to cloud',
       progress: 0,
       bytesReceived: 0,
       totalBytes: 0,
@@ -350,53 +357,33 @@ async function startDownload(container, roomCode) {
   try {
     localFileState = {
       status: 'downloading',
-      message: 'Connecting to host...',
+      message: 'Resolving download link...',
       progress: 0,
       bytesReceived: 0,
       totalBytes: currentFileShare.fileSize,
     };
     renderFileShare(container, roomCode, false);
 
-    fileLeecher = new WebRTCFileLeecher({
-      roomCode,
-      userId: currentUserId,
-      fileName: currentFileShare.fileName,
-      fileSize: currentFileShare.fileSize,
-      onProgress: (received, total) => {
-        localFileState = {
-          status: 'downloading',
-          message: `${formatBytes(received)} / ${formatBytes(total)}`,
-          progress: total ? received / total : 0,
-          bytesReceived: received,
-          totalBytes: total,
-        };
-        renderFileShare(container, roomCode, false);
-      },
-      onState: (message) => {
-        localFileState = {
-          ...localFileState,
-          status: 'downloading',
-          message,
-        };
-        renderFileShare(container, roomCode, false);
-      },
-    });
+    // Resolve the GoFile code to a direct download URL (via proxy)
+    const downloadUrl = await getDirectDownloadUrl(currentFileShare.goFileCode);
 
-    const file = await fileLeecher.start();
+    // Trigger a native browser download — bypasses CORS entirely and
+    // avoids holding the file in JS memory (Issue #5 fix).
+    triggerNativeDownload(downloadUrl, currentFileShare.fileName);
+
     localFileState = {
-      status: 'verifying',
-      message: 'Download complete. Verifying file...',
+      status: 'idle',
+      message: 'Download started in your browser. Once complete, click \"Select File\" to verify it.',
       progress: 0,
-      bytesReceived: currentFileShare.fileSize,
-      totalBytes: currentFileShare.fileSize,
+      bytesReceived: 0,
+      totalBytes: 0,
     };
     renderFileShare(container, roomCode, false);
-    await verifyFile(container, roomCode, file);
   } catch (error) {
     console.error('[file-share] Download failed:', error);
     localFileState = {
       status: 'error',
-      message: error.message || 'P2P download failed. Try selecting a local file.',
+      message: error.message || 'Could not start download. Try selecting a local file instead.',
       progress: 0,
       bytesReceived: 0,
       totalBytes: currentFileShare?.fileSize || 0,
@@ -536,8 +523,6 @@ function cleanup() {
   if (unsubStarted) { unsubStarted(); unsubStarted = null; }
   if (unsubChat) { unsubChat(); unsubChat = null; }
   if (unsubFileShare) { unsubFileShare(); unsubFileShare = null; }
-  if (fileSeeder) { fileSeeder.stop().catch(() => {}); fileSeeder = null; }
-  if (fileLeecher) { fileLeecher.cleanup().catch(() => {}); fileLeecher = null; }
   currentMessages = [];
   currentRoom = null;
   currentFileShare = null;

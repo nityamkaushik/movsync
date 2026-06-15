@@ -2,21 +2,26 @@ package com.nityam.movsync.ui.lobby
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nityam.movsync.MovSyncApp
+import com.nityam.movsync.data.cloud.GoFileApi
+import com.nityam.movsync.data.cloud.GoFileTransferService
+import com.nityam.movsync.data.cloud.TransferState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 sealed interface FileShareUiState {
     data object NoFileShared : FileShareUiState
+    data class Uploading(val bytesUploaded: Long, val totalBytes: Long) : FileShareUiState
     data class Sharing(val fileName: String, val fileSize: Long) : FileShareUiState
-    data class FileAvailable(val seederId: String, val fileName: String, val fileSize: Long) : FileShareUiState
+    data class FileAvailable(val seederId: String, val fileName: String, val fileSize: Long, val goFileCode: String) : FileShareUiState
     data class Downloading(val bytesReceived: Long, val totalBytes: Long) : FileShareUiState
     data class Downloaded(val fileName: String, val fileUri: Uri) : FileShareUiState
     data class Verifying(val progress: Float?) : FileShareUiState
@@ -50,7 +55,7 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
                 _state.value = when {
                     info == null -> FileShareUiState.NoFileShared
                     isHost -> FileShareUiState.Sharing(info.fileName, info.fileSize)
-                    else -> FileShareUiState.FileAvailable(info.seederId, info.fileName, info.fileSize)
+                    else -> FileShareUiState.FileAvailable(info.seederId, info.fileName, info.fileSize, info.goFileCode)
                 }
             }
         }
@@ -62,17 +67,37 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
                 val userId = container.authRepository.ensureSignedIn()
                 val fileName = appContext.displayName(fileUri) ?: "movsync-video"
                 val fileSize = appContext.fileSize(fileUri)
-                container.fileShareSignaling.publishFileShare(roomCode, userId, fileName, fileSize)
-                container.webrtcFileTransfer.startSeeding(
-                    roomCode = roomCode,
-                    fileUri = fileUri,
-                    userId = userId,
-                    firebaseDatabase = container.firebaseDatabase,
-                    onPeerProgress = { _, _ -> }
-                )
-                _state.value = FileShareUiState.Sharing(fileName, fileSize)
+
+                // Start foreground service for upload
+                val intent = Intent(appContext, GoFileTransferService::class.java).apply {
+                    action = GoFileTransferService.ACTION_UPLOAD
+                    putExtra(GoFileTransferService.EXTRA_FILE_URI, fileUri.toString())
+                    putExtra(GoFileTransferService.EXTRA_FILE_NAME, fileName)
+                    putExtra(GoFileTransferService.EXTRA_FILE_SIZE, fileSize)
+                    putExtra(GoFileTransferService.EXTRA_ROOM_CODE, roomCode)
+                }
+                ContextCompat.startForegroundService(appContext, intent)
+
+                // Observe transfer state until upload completes or fails
+                GoFileTransferService.transferState.collect { state ->
+                    when (state) {
+                        is TransferState.Uploading -> {
+                            _state.value = FileShareUiState.Uploading(state.bytesUploaded, state.totalBytes)
+                        }
+                        is TransferState.UploadComplete -> {
+                            container.fileShareSignaling.publishFileShare(
+                                roomCode, userId, fileName, fileSize, state.goFileCode
+                            )
+                            _state.value = FileShareUiState.Sharing(fileName, fileSize)
+                        }
+                        is TransferState.Failed -> {
+                            _state.value = FileShareUiState.Error(state.error)
+                        }
+                        else -> {}
+                    }
+                }
             }.onFailure {
-                _state.value = FileShareUiState.Error(it.message ?: "Could not start file sharing")
+                _state.value = FileShareUiState.Error(it.message ?: "Could not start upload")
             }
         }
     }
@@ -81,23 +106,39 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
         val available = _state.value as? FileShareUiState.FileAvailable ?: return
         viewModelScope.launch {
             runCatching {
-                val userId = container.authRepository.ensureSignedIn()
                 _state.value = FileShareUiState.Downloading(0L, available.fileSize)
-                val uri = container.webrtcFileTransfer.download(
-                    roomCode = roomCode,
-                    seederId = available.seederId,
-                    userId = userId,
-                    fileName = available.fileName,
-                    fileSize = available.fileSize,
-                    firebaseDatabase = container.firebaseDatabase,
-                    onProgress = { received, total ->
-                        _state.value = FileShareUiState.Downloading(received, total)
+
+                // Resolve direct download URL from GoFile code
+                val downloadUrl = GoFileApi.getDirectDownloadUrl(available.goFileCode)
+
+                // Start foreground service for download
+                val intent = Intent(appContext, GoFileTransferService::class.java).apply {
+                    action = GoFileTransferService.ACTION_DOWNLOAD
+                    putExtra(GoFileTransferService.EXTRA_DOWNLOAD_URL, downloadUrl)
+                    putExtra(GoFileTransferService.EXTRA_FILE_NAME, available.fileName)
+                    putExtra(GoFileTransferService.EXTRA_FILE_SIZE, available.fileSize)
+                    putExtra(GoFileTransferService.EXTRA_ROOM_CODE, roomCode)
+                }
+                ContextCompat.startForegroundService(appContext, intent)
+
+                // Observe transfer state until download completes or fails
+                GoFileTransferService.transferState.collect { state ->
+                    when (state) {
+                        is TransferState.Downloading -> {
+                            _state.value = FileShareUiState.Downloading(state.bytesDownloaded, state.totalBytes)
+                        }
+                        is TransferState.DownloadComplete -> {
+                            _state.value = FileShareUiState.Downloaded(available.fileName, state.fileUri)
+                            selectFile(appContext, state.fileUri, roomCode)
+                        }
+                        is TransferState.Failed -> {
+                            _state.value = FileShareUiState.Error(state.error)
+                        }
+                        else -> {}
                     }
-                )
-                _state.value = FileShareUiState.Downloaded(available.fileName, uri)
-                selectFile(appContext, uri, roomCode)
+                }
             }.onFailure {
-                _state.value = FileShareUiState.Error(it.message ?: "P2P download failed")
+                _state.value = FileShareUiState.Error(it.message ?: "Download failed")
             }
         }
     }
@@ -125,7 +166,10 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun cancelDownload() {
-        container.webrtcFileTransfer.cancelDownload()
+        val intent = Intent(appContext, GoFileTransferService::class.java).apply {
+            action = GoFileTransferService.ACTION_CANCEL
+        }
+        appContext.startService(intent)
         _state.value = FileShareUiState.NoFileShared
     }
 

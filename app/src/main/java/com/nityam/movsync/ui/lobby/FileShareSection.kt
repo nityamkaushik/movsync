@@ -91,6 +91,25 @@ fun FileShareSection(
                     }
                 }
 
+                is FileShareUiState.Uploading -> {
+                    val progress = if (fileShareState.totalBytes > 0L) {
+                        fileShareState.bytesUploaded.toFloat() / fileShareState.totalBytes.toFloat()
+                    } else {
+                        0f
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = CyanAccent,
+                        trackColor = Color.White.copy(alpha = 0.12f)
+                    )
+                    Text(
+                        "Uploading ${formatBytes(fileShareState.bytesUploaded)} / ${formatBytes(fileShareState.totalBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 is FileShareUiState.Sharing -> {
                     Text(
                         "Guests can download directly from this device.",
@@ -216,6 +235,7 @@ private fun StatusPill(state: FileShareUiState) {
     val (text, color) = when (state) {
         FileShareUiState.Verified -> "Verified" to SuccessGreen
         is FileShareUiState.Sharing -> "Live" to SuccessGreen
+        is FileShareUiState.Uploading -> "Uploading" to CyanAccent
         is FileShareUiState.Downloading -> "Downloading" to CyanAccent
         is FileShareUiState.Verifying -> "Verifying" to CyanAccent
         is FileShareUiState.Error -> "Error" to ErrorRed
@@ -240,6 +260,7 @@ private fun subtitleFor(isHost: Boolean, state: FileShareUiState): String {
         FileShareUiState.NoFileShared -> if (isHost) "Share the selected movie from this device." else "You can download from the host or select a local copy."
         is FileShareUiState.Sharing -> "${state.fileName} (${formatBytes(state.fileSize)})"
         is FileShareUiState.FileAvailable -> "${state.fileName} (${formatBytes(state.fileSize)})"
+        is FileShareUiState.Uploading -> "Uploading to cloud…"
         is FileShareUiState.Downloading -> "Receiving movie from host"
         is FileShareUiState.Downloaded -> state.fileName
         is FileShareUiState.Verifying -> "Checking this file against the room fingerprint"
