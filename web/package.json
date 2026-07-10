@@ -12,11 +12,11 @@
     "vite": "^8.0.12"
   },
   "dependencies": {
+    "@nityamkaushik/movsync": "^0.3.3",
     "@supabase/supabase-js": "^2.107.0",
     "coi-serviceworker": "^0.1.7",
     "firebase": "^12.14.0",
     "libav.js": "^6.8.8",
-    "livekit-client": "^2.19.2",
-    "movi-player": "^0.3.3"
+    "livekit-client": "^2.19.2"
   }
 }

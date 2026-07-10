@@ -87,10 +87,24 @@ export function renderWatch(container, { code, isHost }) {
             <h4 class="settings-title">Audio & Subtitles</h4>
 
             <div class="settings-section">
+              <label class="settings-label">Audio Track</label>
+              <div class="custom-select" id="audioTrackSelect" data-value="default">
+                <div class="custom-select-trigger" id="audioTrackTrigger"><span>Default</span></div>
+                <div class="custom-select-options" id="audioTrackOptions">
+                  <div class="custom-option selected" data-value="default">Default</div>
+                </div>
+              </div>
+              <p class="settings-hint" id="audioHint">Detecting embedded tracks...</p>
+            </div>
+
+            <div class="settings-section">
               <label class="settings-label">Subtitle Track</label>
-              <select class="settings-select" id="subtitleTrackSelect">
-                <option value="off">Off</option>
-              </select>
+              <div class="custom-select" id="subtitleTrackSelect" data-value="off">
+                <div class="custom-select-trigger" id="subtitleTrackTrigger"><span>Off</span></div>
+                <div class="custom-select-options" id="subtitleTrackOptions">
+                  <div class="custom-option selected" data-value="off">Off</div>
+                </div>
+              </div>
               <p class="settings-hint" id="subtitleHint">Detecting embedded tracks...</p>
             </div>
 
@@ -104,14 +118,6 @@ export function renderWatch(container, { code, isHost }) {
                 </button>
                 <span class="subtitle-status" id="subtitleStatus"></span>
               </div>
-            </div>
-
-            <div class="settings-section">
-              <label class="settings-label">Audio Track</label>
-              <select class="settings-select" id="audioTrackSelect">
-                <option value="default">Default</option>
-              </select>
-              <p class="settings-hint" id="audioHint">Detecting embedded tracks...</p>
             </div>
           </div>
         </div>
@@ -266,30 +272,38 @@ function populateTracks(container) {
   const subHint = container.querySelector('#subtitleHint');
 
   if (audSelect && audioTracks.length > 0) {
-    audSelect.innerHTML = '<option value="default">Default</option>';
-    audioTracks.forEach((t) => {
-      const opt = document.createElement('option');
-      opt.value = String(t.id);
-      opt.textContent = `🔊 ${t.label || t.language || `Track ${t.id}`}`;
-      if (t.language) opt.textContent += ` [${t.language.toUpperCase()}]`;
-      audSelect.appendChild(opt);
-    });
+    const opts = container.querySelector('#audioTrackOptions');
+    if (opts) {
+      opts.innerHTML = '<div class="custom-option selected" data-value="default">Default</div>';
+      audioTracks.forEach((t) => {
+        const div = document.createElement('div');
+        div.className = 'custom-option';
+        div.dataset.value = String(t.id);
+        div.textContent = `🔊 ${t.label || t.language || `Track ${t.id}`}`;
+        if (t.language) div.textContent += ` [${t.language.toUpperCase()}]`;
+        opts.appendChild(div);
+      });
+    }
     if (audHint) audHint.textContent = `${audioTracks.length} audio tracks found`;
   } else {
     if (audHint) audHint.textContent = '1 audio track (default)';
   }
 
   if (subSelect && subTracks.length > 0) {
-    subTracks.forEach((t) => {
-      if (t.type === 'subtitle') {
-        const opt = document.createElement('option');
-        opt.value = String(t.id);
-        opt.textContent = `🎬 ${t.label || t.language || `Track ${t.id}`}`;
-        if (t.language) opt.textContent += ` [${t.language.toUpperCase()}]`;
-        subSelect.appendChild(opt);
-      }
-    });
-    if (subHint) subHint.textContent = `${subSelect.options.length - 1} subtitle tracks found`;
+    const opts = container.querySelector('#subtitleTrackOptions');
+    if (opts) {
+      subTracks.forEach((t) => {
+        if (t.type === 'subtitle') {
+          const div = document.createElement('div');
+          div.className = 'custom-option';
+          div.dataset.value = String(t.id);
+          div.textContent = `🎬 ${t.label || t.language || `Track ${t.id}`}`;
+          if (t.language) div.textContent += ` [${t.language.toUpperCase()}]`;
+          opts.appendChild(div);
+        }
+      });
+    }
+    if (subHint) subHint.textContent = `${subTracks.filter(t=>t.type==='subtitle').length} subtitle tracks found`;
   } else {
     if (subHint) subHint.textContent = 'No embedded subtitles detected. Load an external .srt/.vtt file.';
   }
@@ -310,10 +324,20 @@ function setupEventListeners(container, roomCode, isHost) {
       if (panel) panel.style.display = 'none';
       showControls = false;
       if (overlay) overlay.classList.add('hidden');
+      if (watchScreen) watchScreen.classList.add('idle');
       return;
     }
 
     toggleControls(container);
+  });
+
+  watchScreen.addEventListener('dblclick', (e) => {
+    if (e.target.tagName !== 'CANVAS') return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      watchScreen.requestFullscreen?.();
+    }
   });
 
   resetControlsTimer(container);
@@ -394,6 +418,7 @@ function setupEventListeners(container, roomCode, isHost) {
     if (!showSettings) {
       showControls = false;
       if (overlay) overlay.classList.add('hidden');
+      if (watchScreen) watchScreen.classList.add('idle');
     }
   });
 
@@ -415,26 +440,47 @@ function setupEventListeners(container, roomCode, isHost) {
     if (status) status.textContent = `✓ ${file.name}`;
   });
 
-  container.querySelector('#subtitleTrackSelect')?.addEventListener('change', (e) => {
-    e.stopPropagation();
-    const val = e.target.value;
-    if (val === 'off') {
-      movi.setSubtitleTrack(null);
-    } else {
-      const trackId = parseInt(val, 10);
-      if (!isNaN(trackId)) movi.setSubtitleTrack(trackId);
+  container.querySelector('#settingsPanel')?.addEventListener('click', (e) => {
+    const trigger = e.target.closest('.custom-select-trigger');
+    if (trigger) {
+      const select = trigger.closest('.custom-select');
+      const isOpen = select.classList.contains('open');
+      // close all others
+      container.querySelectorAll('.custom-select').forEach(s => s.classList.remove('open'));
+      if (!isOpen) select.classList.add('open');
+      return;
     }
-  });
-
-  container.querySelector('#audioTrackSelect')?.addEventListener('change', (e) => {
-    e.stopPropagation();
-    const val = e.target.value;
-    if (val === 'default') {
-      const tracks = movi.getAudioTracks();
-      if (tracks.length > 0) movi.setAudioTrack(tracks[0].id);
+    
+    const option = e.target.closest('.custom-option');
+    if (option) {
+      const select = option.closest('.custom-select');
+      const val = option.dataset.value;
+      const text = option.textContent;
+      select.dataset.value = val;
+      select.querySelector('.custom-select-trigger span').textContent = text;
+      select.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
+      option.classList.add('selected');
+      select.classList.remove('open');
+      
+      if (select.id === 'audioTrackSelect') {
+        if (val === 'default') {
+          const tracks = movi.getAudioTracks();
+          if (tracks.length > 0) movi.setAudioTrack(tracks[0].id);
+        } else {
+          const trackId = parseInt(val, 10);
+          if (!isNaN(trackId)) movi.setAudioTrack(trackId);
+        }
+      } else if (select.id === 'subtitleTrackSelect') {
+        if (val === 'off') {
+          movi.setSubtitleTrack(null);
+        } else {
+          const trackId = parseInt(val, 10);
+          if (!isNaN(trackId)) movi.setSubtitleTrack(trackId);
+        }
+      }
     } else {
-      const trackId = parseInt(val, 10);
-      if (!isNaN(trackId)) movi.setAudioTrack(trackId);
+      // Clicked outside, close all
+      container.querySelectorAll('.custom-select').forEach(s => s.classList.remove('open'));
     }
   });
 
@@ -526,6 +572,17 @@ function setupEventListeners(container, roomCode, isHost) {
         const panel = container.querySelector('#settingsPanel');
         if (panel) panel.style.display = showSettings ? 'block' : 'none';
         break;
+      case 'm':
+        e.preventDefault();
+        const vol = movi.getVolume();
+        if (vol > 0) {
+          watchScreen._lastVol = vol;
+          movi.setVolume(0);
+        } else {
+          movi.setVolume(watchScreen._lastVol || 1);
+        }
+        volumeSlider.value = Math.round(movi.getVolume() * 100);
+        break;
       case 'f':
         e.preventDefault();
         if (document.fullscreenElement) {
@@ -539,6 +596,47 @@ function setupEventListeners(container, roomCode, isHost) {
 
   document.addEventListener('keydown', keyHandler);
   watchScreen._keyHandler = keyHandler;
+
+  // Mouse idle detection
+  const mouseHandler = () => {
+    if (!showControls && !showSettings) {
+      showControls = true;
+      toggleControls(container);
+    }
+    resetControlsTimer(container);
+  };
+  watchScreen.addEventListener('mousemove', mouseHandler);
+  watchScreen.addEventListener('click', mouseHandler);
+
+  // Setup Media Session API (Hardware media keys & Lockscreen)
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: file.name || 'Local Video',
+      artist: 'MovSync Player',
+      artwork: [{ src: '/logo.jpg', sizes: '512x512', type: 'image/jpeg' }]
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (canControl(isHost)) togglePlayPause(roomCode, isHost);
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (canControl(isHost)) togglePlayPause(roomCode, isHost);
+    });
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      if (canControl(isHost)) {
+        const newPos = Math.max((movi.getCurrentTime() - 10), 0);
+        movi.setCurrentTime(newPos);
+        if (roomCode !== 'local') syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos * 1000));
+      }
+    });
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      if (canControl(isHost)) {
+        const newPos = Math.min((movi.getCurrentTime() + 10), movi.getDuration() || 0);
+        movi.setCurrentTime(newPos);
+        if (roomCode !== 'local') syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos * 1000));
+      }
+    });
+  }
 }
 
 function canControl(isHost) {
@@ -565,6 +663,8 @@ function toggleControls(container) {
   showControls = !showControls;
   const overlay = container.querySelector('#watchOverlay');
   overlay.classList.toggle('hidden', !showControls);
+  const watchScreen = container.querySelector('#watchScreen');
+  if (watchScreen) watchScreen.classList.toggle('idle', !showControls);
   updateChatIndicators(container);
   if (showControls) resetControlsTimer(container);
 }
@@ -576,6 +676,8 @@ function resetControlsTimer(container) {
     showControls = false;
     const overlay = container.querySelector('#watchOverlay');
     if (overlay) overlay.classList.add('hidden');
+    const watchScreen = container.querySelector('#watchScreen');
+    if (watchScreen) watchScreen.classList.add('idle');
     updateChatIndicators(container);
   }, 3000);
 }

@@ -42,44 +42,57 @@ export function renderLobby(container, { code, isHost }) {
 
   container.innerHTML = `
     <div class="screen-container lobby-screen">
+      <div class="lobby-ambient-bg"></div>
       <div class="screen-header">
         <button class="btn-icon" id="lobbyBackBtn" aria-label="Back">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         </button>
-        <h2 class="screen-title">Lobby</h2>
-      </div>
-
-      <div id="roomCodeContainer" class="lobby-section stagger-1"></div>
-      <div id="fileShareContainer" class="lobby-section stagger-2"></div>
-      <input type="file" id="lobbyFileInput" accept="video/*" hidden />
-
-      <div class="glass-card lobby-participants-card lobby-section stagger-3">
-        <h3 class="participants-title">Participants</h3>
-        <div id="participantsList" class="participants-list">
-          <div class="loading-pulse">Waiting for participants...</div>
+        <div class="screen-header-text">
+          <h2 class="screen-title">Lobby</h2>
+          <p class="screen-subtitle">Invite your friends to watch together</p>
         </div>
       </div>
 
-      <div id="lobbyAction" class="lobby-action glass-card lobby-section stagger-4">
-        ${isHostBool
-          ? `<button class="btn btn-gradient" id="startWatchingBtn" disabled>
-               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-               Start Watching
-             </button>`
-          : `<div class="waiting-host" id="waitingHost">
-               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-               <span>Waiting for host to start</span>
-             </div>`
-        }
+      <div class="lobby-layout-grid">
+        <div class="lobby-col-main">
+          <div id="roomCodeContainer" class="lobby-section stagger-1"></div>
+
+          <div id="lobbyAction" class="lobby-action lobby-section stagger-2">
+            ${isHostBool
+              ? `<button class="btn btn-gradient" id="startWatchingBtn" disabled>
+                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                   Start Watching
+                 </button>`
+              : `<div class="waiting-host" id="waitingHost">
+                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                   <span>Waiting for host to start</span>
+                 </div>`
+            }
+          </div>
+
+          <div id="fileShareContainer" class="lobby-section stagger-3"></div>
+          <input type="file" id="lobbyFileInput" accept="video/*" hidden />
+        </div>
+
+        <div class="lobby-col-side">
+          <div class="glass-card lobby-participants-card lobby-section stagger-4">
+            <div class="participants-header">
+              <h3 class="participants-title">Participants</h3>
+              <button class="participants-chat-btn" id="lobbyChatFab" type="button" aria-label="Open room chat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+                <span class="unread-badge" id="lobbyChatBadge" hidden>0</span>
+              </button>
+            </div>
+            <div id="participantsList" class="participants-list">
+              <div class="loading-pulse">Waiting for participants...</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div id="lobbyChatOverlay" class="lobby-chat-overlay closed" aria-hidden="true">
         <div id="lobbyChatContainer"></div>
       </div>
-      <button class="lobby-chat-fab" id="lobbyChatFab" type="button" aria-label="Open room chat">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
-        <span class="unread-badge" id="lobbyChatBadge" hidden>0</span>
-      </button>
     </div>
   `;
 
@@ -454,9 +467,11 @@ function renderParticipants(container, users, isHost) {
   if (!list) return;
   list.innerHTML = '';
 
+  let index = 1;
   for (const user of users) {
     const item = document.createElement('div');
-    item.className = 'participant-item';
+    const staggerDelay = Math.min(index++, 5);
+    item.className = `participant-item stagger-${staggerDelay} lobby-section`;
 
     const avatar = createParticipantAvatar(user.displayName, user.online);
     item.appendChild(avatar);

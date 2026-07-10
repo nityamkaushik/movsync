@@ -37,7 +37,13 @@ export function renderHome(container) {
 
     <!-- LAPTOP/TABLET LAYOUT -->
     <main class="home-desktop">
-      <div class="home-action-grid">
+      <div class="home-ambient-bg"></div>
+      <div class="home-hero stagger-1">
+        <h1 class="home-hero-title">Watch Movies Together.<br/><span class="text-gradient-animated">In Perfect Sync.</span></h1>
+        <p class="home-hero-subtitle stagger-2">Host a watch party with your friends. Play local files, sync playback instantly, and chat seamlessly.</p>
+      </div>
+      <input type="file" id="createRoomFileInputDesktop" accept="video/*" hidden />
+      <div class="home-action-grid stagger-3">
         <button class="home-action-card home-action-card-primary" id="createRoomBtn" type="button">
           <span class="home-action-icon home-action-icon-purple">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -66,7 +72,7 @@ export function renderHome(container) {
         </button>
       </div>
       <input type="file" id="localPlayFileInput" accept="video/*" hidden />
-      <button class="home-local-play" id="localPlayBtnDesktop" type="button">
+      <button class="home-local-play stagger-4" id="localPlayBtnDesktop" type="button">
         Local Play for testing →
       </button>
     </main>
@@ -85,7 +91,15 @@ export function renderHome(container) {
           </button>
         </div>
       </div>
-      <div class="home-phone-actions">
+      <div class="home-ambient-bg"></div>
+      
+      <div class="home-hero-phone stagger-1">
+        <h1 class="home-hero-title-phone">Watch Together. <br/><span class="text-gradient-animated">Perfect Sync.</span></h1>
+        <p class="home-hero-subtitle-phone stagger-2">Play local files with friends in real-time.</p>
+      </div>
+
+      <div class="home-phone-actions stagger-3">
+        <input type="file" id="createRoomFileInputPhone" accept="video/*" hidden />
         <button class="home-phone-btn home-phone-btn-primary" id="createRoomBtnPhone" type="button">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/>
@@ -103,7 +117,7 @@ export function renderHome(container) {
           Join Room
         </button>
       </div>
-      <div class="home-phone-footer">
+      <div class="home-phone-footer stagger-4">
         <input type="file" id="localPlayFileInputPhone" accept="video/*" hidden />
         <button class="home-phone-local" id="localPlayBtnPhone" type="button">
           Local Play for testing →
@@ -139,18 +153,35 @@ export function renderHome(container) {
     return name;
   };
 
+  const setupCreateRoomFile = (btnId, inputId) => {
+    const btn = container.querySelector(btnId);
+    const input = container.querySelector(inputId);
+    if (!btn || !input) return;
+
+    btn.addEventListener('click', () => {
+      if (requireName()) {
+        input.click();
+      }
+    });
+
+    input.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        window.__movsync_pendingCreateFile = file;
+        navigate('#/create');
+      }
+      input.value = '';
+    });
+  };
+
   // Desktop buttons
-  container.querySelector('#createRoomBtn')?.addEventListener('click', () => {
-    if (requireName()) navigate('#/create');
-  });
+  setupCreateRoomFile('#createRoomBtn', '#createRoomFileInputDesktop');
   container.querySelector('#joinRoomBtnDesktop')?.addEventListener('click', () => {
     if (requireName()) navigate('#/join');
   });
 
   // Phone buttons
-  container.querySelector('#createRoomBtnPhone')?.addEventListener('click', () => {
-    if (requireName()) navigate('#/create');
-  });
+  setupCreateRoomFile('#createRoomBtnPhone', '#createRoomFileInputPhone');
   container.querySelector('#joinRoomBtnPhone')?.addEventListener('click', () => {
     if (requireName()) navigate('#/join');
   });

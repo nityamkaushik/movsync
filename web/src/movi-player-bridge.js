@@ -1,4 +1,4 @@
-import { MoviPlayer } from 'movi-player/player';
+import { MoviPlayer } from '@nityamkaushik/movsync/player';
 
 let player = null;
 let canvasEl = null;

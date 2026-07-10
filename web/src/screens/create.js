@@ -93,6 +93,20 @@ export function renderCreate(container) {
     selectedFile = null;
     container.querySelector('#selectedFileInfo').style.display = 'none';
   });
+
+  // Handle immediate file if passed from home screen
+  if (window.__movsync_pendingCreateFile) {
+    const file = window.__movsync_pendingCreateFile;
+    window.__movsync_pendingCreateFile = null; // consume it
+    selectedFile = file;
+    
+    // Show file name
+    container.querySelector('#selectedFileInfo').style.display = 'flex';
+    container.querySelector('#selectedFileName').textContent = file.name;
+    
+    // Start hashing immediately
+    processFile(container, file);
+  }
 }
 
 async function processFile(container, file) {
