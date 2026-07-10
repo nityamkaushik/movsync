@@ -1,22 +1,15 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // Exclude wasm files from being processed/bundled by Vite
   assetsInclude: ['**/*.wasm'],
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      // Changed from 'require-corp' to 'credentialless' so that cross-origin
-      // fetches (GoFile API, CDN) aren't blocked.  SharedArrayBuffer still
-      // works under 'credentialless' (Chrome 96+, Firefox 119+).
       'Cross-Origin-Embedder-Policy': 'credentialless',
     },
   },
   plugins: [
     {
-      // Dev-only proxy: forwards /api/gofile-proxy requests to GoFile API
-      // so the browser never hits CORS.  In production, the Vercel
-      // serverless function at api/gofile-proxy.js handles this.
       name: 'gofile-api-proxy',
       configureServer(server) {
         const GOFILE_API = 'https://api.gofile.io';
@@ -59,17 +52,5 @@ export default defineConfig({
         });
       },
     },
-    {
-      // Custom plugin: ensure /libav/* wasm files get correct MIME type
-      name: 'libav-static-serve',
-      configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          if (req.url && req.url.startsWith('/libav/') && req.url.endsWith('.wasm')) {
-            res.setHeader('Content-Type', 'application/wasm');
-          }
-          next();
-        });
-      },
-    },
-  ],
+    ],
 });

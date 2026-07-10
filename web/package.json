@@ -4,9 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup:libav": "node setup-libav.js",
-    "dev": "node setup-libav.js && vite",
-    "build": "node setup-libav.js && vite build",
+    "dev": "vite",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -14,8 +13,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
+    "coi-serviceworker": "^0.1.7",
     "firebase": "^12.14.0",
     "libav.js": "^6.8.8",
-    "livekit-client": "^2.19.2"
+    "livekit-client": "^2.19.2",
+    "movi-player": "^0.3.3"
   }
 }

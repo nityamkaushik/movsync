@@ -168,31 +168,41 @@ export function renderHome(container) {
 function setupNameEditing(container) {
   const editNameBtn = container.querySelector('#editNameBtn');
   const editNameBtnPhone = container.querySelector('#editNameBtnPhone');
-  const nameDisplay = container.querySelector('#topBarName');
+  const topBarName = container.querySelector('#topBarName');
   const phoneName = container.querySelector('#phoneName');
 
-  const startEditing = () => {
+  const startEditing = (targetEl, isPhone) => {
     const currentName = getOrCreateDisplayName();
     const input = document.createElement('input');
     input.type = 'text';
-    input.className = 'top-bar-name-input';
+    input.className = isPhone ? 'phone-name-input' : 'top-bar-name-input';
     input.value = currentName;
     input.maxLength = 50;
 
-    nameDisplay.replaceWith(input);
-    if (phoneName) phoneName.textContent = currentName;
+    targetEl.replaceWith(input);
     input.focus();
     input.select();
 
     const save = () => {
       const newName = input.value.trim() || generateRandomName();
       saveDisplayName(newName);
-      const span = document.createElement('span');
-      span.className = 'top-bar-name';
-      span.id = 'topBarName';
-      span.textContent = newName;
-      input.replaceWith(span);
+
+      if (isPhone) {
+        const span = document.createElement('span');
+        span.className = 'home-phone-name';
+        span.id = 'phoneName';
+        span.textContent = newName;
+        input.replaceWith(span);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'top-bar-name';
+        span.id = 'topBarName';
+        span.textContent = newName;
+        input.replaceWith(span);
+      }
+
       if (phoneName) phoneName.textContent = newName;
+      if (topBarName) topBarName.textContent = newName;
     };
 
     input.addEventListener('blur', save);
@@ -201,8 +211,8 @@ function setupNameEditing(container) {
     });
   };
 
-  editNameBtn?.addEventListener('click', startEditing);
-  editNameBtnPhone?.addEventListener('click', startEditing);
+  editNameBtn?.addEventListener('click', () => startEditing(topBarName, false));
+  editNameBtnPhone?.addEventListener('click', () => startEditing(phoneName, true));
 }
 
 function setupLocalPlay(container, btnSelector, inputSelector) {

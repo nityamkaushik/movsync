@@ -1,8 +1,3 @@
-/**
- * Watch Screen — Port of WatchScreen.kt + WatchViewModel.kt
- * Full-screen video player with sync overlay, chat, and keyboard controls.
- */
-
 import { navigate } from '../router.js';
 import { ensureSignedIn, getDisplayName } from '../auth.js';
 import * as syncEngine from '../sync-engine.js';
@@ -10,10 +5,10 @@ import * as firebaseSync from '../firebase-sync.js';
 import { leaveRoom, getRoomByCode } from '../room-repository.js';
 import { createChatUI } from '../components/chat.js';
 import * as voiceChat from '../voice-chat.js';
+import * as movi from '../movi-player-bridge.js';
 
 let userId = null;
 let roomData = null;
-let videoElement = null;
 let controlsTimeout = null;
 let showControls = true;
 let showChat = false;
@@ -25,35 +20,20 @@ let unsubAllowControls = null;
 let allowControls = true;
 let syncStatus = 'synced';
 let progressInterval = null;
-let subtitleCues = [];
-let subtitlesEnabled = false;
-let currentSubtitle = '';
 let showRemainingTime = false;
 let unsubVoiceState = null;
 let unsubVoicePeer = null;
 let voicePeerWasConnected = false;
+let externalSubtitleBlobUrl = null;
 
-// MKV Integration Variables
-let libavWorker = null;
-let jassub = null;
-let audioCtx = null;
-let gainNode = null;
-let audioFileBlob = null;
-let activeAudioSource = 'default'; // 'default' | 'libav' | 'native'
-let currentAudioTrackId = -1;
-let activeSources = [];
-let nextExpectedPts = null;
-let nextExpectedCtxTime = null;
-let isDecodingAudio = false;
-let decodeWatchdog = null;
-let audioEmptyCount = 0;
-let boundResizeJassubCanvas = null;
+let playerReady = false;
+let isReady = false;
 
 export function renderWatch(container, { code, isHost }) {
   const isHostBool = isHost === 'true';
-  const videoUrl = window.__movsync_videoUrl;
+  const file = window.__movsync_file;
 
-  if (!videoUrl) {
+  if (!file) {
     container.innerHTML = `
       <div class="screen-container" style="text-align:center; padding-top:100px;">
         <h2>No video file selected</h2>
@@ -66,19 +46,12 @@ export function renderWatch(container, { code, isHost }) {
 
   container.innerHTML = `
     <div class="watch-screen" id="watchScreen">
-      <video id="videoPlayer" src="${videoUrl}" preload="auto"></video>
+      <canvas id="moviCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
 
-      <!-- Subtitle Overlay -->
-      <div class="subtitle-overlay" id="subtitleOverlay"></div>
-      <canvas id="jassubCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></canvas>
-
-      <!-- Unread Indicator (when controls hidden) -->
       <div class="video-unread-dot" id="videoUnreadDot" style="display:none;"></div>
       <div class="watch-toast" id="watchToast" role="status" aria-live="polite"></div>
 
-      <!-- Controls Overlay -->
       <div class="watch-overlay" id="watchOverlay">
-        <!-- Top Bar -->
         <div class="watch-top-bar">
           <div class="watch-top-left">
             <div class="sync-chip" id="syncChip">
@@ -93,7 +66,6 @@ export function renderWatch(container, { code, isHost }) {
             ` : ''}
           </div>
           <div class="watch-top-right">
-            <!-- Subtitle/Settings toggle -->
             <button class="btn-icon-watch" id="subtitleToggleBtn" title="Audio & Subtitles">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="14" x2="23" y2="14"/><line x1="5" y1="18" x2="19" y2="18"/></svg>
             </button>
@@ -110,7 +82,6 @@ export function renderWatch(container, { code, isHost }) {
           </div>
         </div>
 
-        <!-- Settings Panel -->
         <div class="settings-panel" id="settingsPanel" style="display:none;">
           <div class="settings-card glass-card">
             <h4 class="settings-title">Audio & Subtitles</h4>
@@ -145,14 +116,12 @@ export function renderWatch(container, { code, isHost }) {
           </div>
         </div>
 
-        <!-- Center Play/Pause -->
         <div class="watch-center">
           <button class="center-play-btn" id="centerPlayBtn">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="centerPlayIcon"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </button>
         </div>
 
-        <!-- Bottom Bar -->
         <div class="watch-bottom-bar">
           <button class="btn-icon-watch" id="bottomPlayBtn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="bottomPlayIcon"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -179,12 +148,10 @@ export function renderWatch(container, { code, isHost }) {
         </div>
       </div>
 
-      <!-- Chat Panel -->
       <div class="watch-chat-panel" id="watchChatPanel" style="display:none;">
         <div id="watchChatContainer"></div>
       </div>
 
-      <!-- Leave Confirmation -->
       <div class="modal-overlay" id="leaveModal" style="display:none;">
         <div class="modal-card glass-card">
           <h3>Leave watch session?</h3>
@@ -198,8 +165,6 @@ export function renderWatch(container, { code, isHost }) {
     </div>
   `;
 
-  videoElement = container.querySelector('#videoPlayer');
-
   init(container, code, isHostBool);
   setupEventListeners(container, code, isHostBool);
 
@@ -207,55 +172,24 @@ export function renderWatch(container, { code, isHost }) {
 }
 
 async function init(container, roomCode, isHost) {
-  audioFileBlob = window.__movsync_file;
-  
-  if (audioFileBlob) {
-    libavWorker = new Worker('/libav-worker.js');
-    libavWorker.onerror = (e) => {
-      console.error('libav worker error:', e);
-      const subHint = container.querySelector('#subtitleHint');
-      const audHint = container.querySelector('#audioHint');
-      if (subHint) subHint.textContent = `Worker Load Error: ${e.message || 'Failed to start worker'}`;
-      if (audHint) audHint.textContent = `Worker Load Error: ${e.message || 'Failed to start worker'}`;
-    };
-    
-    // NOTE: JASSUB is created lazily in the sub_data handler
-    // to avoid exit(4) crash from empty-track initialization before fonts load
+  const canvas = container.querySelector('#moviCanvas');
 
-    // Set up canvas scaling to match JASSUB raster size to video element size
-    const resizeJassubCanvas = () => {
-      const cv = container.querySelector('#jassubCanvas');
-      if (!cv || !videoElement) return;
-      const rect = videoElement.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        cv.width = Math.round(rect.width);
-        cv.height = Math.round(rect.height);
-        if (jassub) jassub.resize(cv.width, cv.height);
-      }
-    };
+  const player = movi.initPlayer(canvas, window.__movsync_file);
+  await movi.loadPlayer();
 
-    boundResizeJassubCanvas = resizeJassubCanvas;
-    resizeJassubCanvas();
-    window.addEventListener('resize', resizeJassubCanvas);
-    videoElement.addEventListener('loadedmetadata', resizeJassubCanvas);
-    document.addEventListener('fullscreenchange', () => setTimeout(resizeJassubCanvas, 100));
-  }
+  isReady = true;
 
-  // Detect all embedded tracks when metadata loads
-  const detectTracks = () => detectEmbeddedTracks(container);
-  if (videoElement.readyState >= 1) {
-    detectTracks();
-  } else {
-    videoElement.addEventListener('loadedmetadata', detectTracks);
-  }
+  movi.resizeCanvas();
+  window.addEventListener('resize', () => movi.resizeCanvas());
+  document.addEventListener('fullscreenchange', () => setTimeout(() => movi.resizeCanvas(), 100));
 
-  // Also try after a short delay (some browsers populate tracks late)
-  videoElement.addEventListener('loadeddata', () => {
-    setTimeout(detectTracks, 500);
+  setTimeout(() => populateTracks(container), 500);
+
+  movi.onPlayStateChangeCallback((paused) => {
+    updatePlayIcons(container);
   });
 
   if (roomCode === 'local') {
-    // Hide or disable chat, sync chip, room code info, etc.
     const syncChip = container.querySelector('#syncChip');
     if (syncChip) syncChip.style.display = 'none';
     const chatToggleBtn = container.querySelector('#chatToggleBtn');
@@ -264,16 +198,12 @@ async function init(container, roomCode, isHost) {
     if (voiceMicBtn) voiceMicBtn.style.display = 'none';
     const toggleControlsBtn = container.querySelector('#toggleControlsBtn');
     if (toggleControlsBtn) toggleControlsBtn.style.display = 'none';
-    
-    // Update progress bar + subtitles periodically
+
     progressInterval = setInterval(() => {
       updateProgress(container);
-      updateSubtitleOverlay(container);
-      checkAudioBufferQueue();
     }, 200);
 
-    // Auto-play
-    videoElement.play().catch(() => {});
+    movi.play();
     return;
   }
 
@@ -283,19 +213,27 @@ async function init(container, roomCode, isHost) {
   voiceChat.startObservingVoiceActive(roomCode);
   setupVoiceChat(container);
 
-  // Start sync engine
+  const syncVideo = {
+    get currentTime() { return movi.getCurrentTime(); },
+    set currentTime(t) { movi.setCurrentTime(t); },
+    get paused() { return movi.isPaused(); },
+    get playbackRate() { return movi.getPlaybackRate(); },
+    set playbackRate(r) { movi.setPlaybackRate(r); },
+    play: () => movi.play(),
+    pause: () => movi.pause(),
+  };
+
   syncEngine.start({
     roomCode,
     userId,
     isHost,
-    video: videoElement,
+    video: syncVideo,
     onStatus: (status) => {
       syncStatus = status;
       updateSyncChip(container);
     },
   });
 
-  // Listen to chat
   unsubChat = firebaseSync.observeChatMessages(roomCode, (messages) => {
     currentMessages = messages;
     if (showChat) {
@@ -305,7 +243,6 @@ async function init(container, roomCode, isHost) {
     updateChatIndicators(container);
   });
 
-  // Listen to allow controls
   if (!isHost) {
     unsubAllowControls = firebaseSync.observeAllowControls(roomCode, (allow) => {
       allowControls = allow;
@@ -313,66 +250,55 @@ async function init(container, roomCode, isHost) {
     });
   }
 
-  // Update progress bar + subtitles periodically
   progressInterval = setInterval(() => {
     updateProgress(container);
-    updateSubtitleOverlay(container);
-    checkAudioBufferQueue();
   }, 200);
 
-  // Auto-play
-  videoElement.play().catch(() => {});
+  movi.play().catch(() => {});
+}
+
+function populateTracks(container) {
+  const audioTracks = movi.getAudioTracks();
+  const subTracks = movi.getSubtitleTracks();
+  const audSelect = container.querySelector('#audioTrackSelect');
+  const audHint = container.querySelector('#audioHint');
+  const subSelect = container.querySelector('#subtitleTrackSelect');
+  const subHint = container.querySelector('#subtitleHint');
+
+  if (audSelect && audioTracks.length > 0) {
+    audSelect.innerHTML = '<option value="default">Default</option>';
+    audioTracks.forEach((t) => {
+      const opt = document.createElement('option');
+      opt.value = String(t.id);
+      opt.textContent = `🔊 ${t.label || t.language || `Track ${t.id}`}`;
+      if (t.language) opt.textContent += ` [${t.language.toUpperCase()}]`;
+      audSelect.appendChild(opt);
+    });
+    if (audHint) audHint.textContent = `${audioTracks.length} audio tracks found`;
+  } else {
+    if (audHint) audHint.textContent = '1 audio track (default)';
+  }
+
+  if (subSelect && subTracks.length > 0) {
+    subTracks.forEach((t) => {
+      if (t.type === 'subtitle') {
+        const opt = document.createElement('option');
+        opt.value = String(t.id);
+        opt.textContent = `🎬 ${t.label || t.language || `Track ${t.id}`}`;
+        if (t.language) opt.textContent += ` [${t.language.toUpperCase()}]`;
+        subSelect.appendChild(opt);
+      }
+    });
+    if (subHint) subHint.textContent = `${subSelect.options.length - 1} subtitle tracks found`;
+  } else {
+    if (subHint) subHint.textContent = 'No embedded subtitles detected. Load an external .srt/.vtt file.';
+  }
 }
 
 function setupEventListeners(container, roomCode, isHost) {
   const overlay = container.querySelector('#watchOverlay');
   const watchScreen = container.querySelector('#watchScreen');
 
-  // Sync libav audio with video element events
-  videoElement.addEventListener('play', () => {
-    if (activeAudioSource === 'libav') {
-      if (audioCtx) audioCtx.resume();
-      // Don't reinitialize — just keep decoding. Request more audio if needed.
-      checkAudioBufferQueue();
-    }
-  });
-
-  videoElement.addEventListener('pause', () => {
-    if (activeAudioSource === 'libav') {
-      stopAllAudioSources();
-      nextExpectedPts = null;
-      nextExpectedCtxTime = null;
-    }
-  });
-
-  videoElement.addEventListener('seeking', () => {
-    if (activeAudioSource === 'libav') {
-      stopAllAudioSources();
-      nextExpectedPts = null;
-      nextExpectedCtxTime = null;
-    }
-  });
-
-  videoElement.addEventListener('seeked', () => {
-    if (activeAudioSource === 'libav') {
-      // Readahead files can't seek MKV (Cues at end of file).
-      // Just resume decoding from current position and request more data.
-      nextExpectedPts = null;
-      nextExpectedCtxTime = null;
-      checkAudioBufferQueue();
-    }
-  });
-
-  videoElement.addEventListener('ratechange', () => {
-    if (activeAudioSource === 'libav') {
-      const rate = videoElement.playbackRate;
-      activeSources.forEach(source => {
-        try { source.playbackRate.value = rate; } catch(_) {}
-      });
-    }
-  });
-
-  // Click to toggle controls
   watchScreen.addEventListener('click', (e) => {
     if (e.target.closest('.watch-top-bar') || e.target.closest('.watch-bottom-bar') ||
         e.target.closest('.watch-center') || e.target.closest('.watch-chat-panel') ||
@@ -382,9 +308,7 @@ function setupEventListeners(container, roomCode, isHost) {
       showSettings = false;
       const panel = container.querySelector('#settingsPanel');
       if (panel) panel.style.display = 'none';
-      
       showControls = false;
-      const overlay = container.querySelector('#watchOverlay');
       if (overlay) overlay.classList.add('hidden');
       return;
     }
@@ -392,68 +316,58 @@ function setupEventListeners(container, roomCode, isHost) {
     toggleControls(container);
   });
 
-  // Auto-hide controls after 3s
   resetControlsTimer(container);
 
-  // Center play/pause
   container.querySelector('#centerPlayBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     if (!canControl(isHost)) return;
     togglePlayPause(roomCode, isHost);
   });
 
-  // Bottom play/pause
   container.querySelector('#bottomPlayBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     if (!canControl(isHost)) return;
     togglePlayPause(roomCode, isHost);
   });
 
-  // Seek bar
   const seekBar = container.querySelector('#seekBar');
   seekBar.addEventListener('input', (e) => {
     e.stopPropagation();
     if (!canControl(isHost)) return;
-    const duration = videoElement.duration || 0;
-    const position = (parseInt(seekBar.value) / 1000) * duration * 1000;
-    if (roomCode !== 'local') {
-      syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(position));
-    }
-    videoElement.currentTime = position / 1000;
+    const duration = movi.getDuration() || 0;
+    const position = (parseInt(seekBar.value) / 1000) * duration;
+    movi.setCurrentTime(position);
     resetControlsTimer(container);
   });
 
-  // Time toggle
+  seekBar.addEventListener('change', (e) => {
+    e.stopPropagation();
+    if (!canControl(isHost)) return;
+    const duration = movi.getDuration() || 0;
+    const position = (parseInt(seekBar.value) / 1000) * duration;
+    if (roomCode !== 'local') {
+      syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(position * 1000));
+    }
+  });
+
   container.querySelector('#timeTotal')?.addEventListener('click', (e) => {
     e.stopPropagation();
     showRemainingTime = !showRemainingTime;
     updateProgress(container);
   });
 
-  // Volume
   const volumeSlider = container.querySelector('#volumeSlider');
   volumeSlider.addEventListener('input', (e) => {
     e.stopPropagation();
     const val = parseInt(volumeSlider.value) / 100;
-    videoElement.volume = val;
-    if (gainNode) {
-      gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
-    }
+    movi.setVolume(val);
   });
 
   container.querySelector('#volumeBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    videoElement.muted = !videoElement.muted;
-    if (gainNode) {
-      if (videoElement.muted) {
-        gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-      } else {
-        gainNode.gain.setValueAtTime(parseInt(volumeSlider.value) / 100, audioCtx.currentTime);
-      }
-    }
+    movi.setMuted(!movi.isMuted());
   });
 
-  // Fullscreen
   container.querySelector('#fullscreenBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (document.fullscreenElement) {
@@ -463,7 +377,6 @@ function setupEventListeners(container, roomCode, isHost) {
     }
   });
 
-  // Toggle controls (host only)
   container.querySelector('#toggleControlsBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (isHost) {
@@ -473,22 +386,17 @@ function setupEventListeners(container, roomCode, isHost) {
     }
   });
 
-  // Subtitle/Settings toggle
   container.querySelector('#subtitleToggleBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     showSettings = !showSettings;
     const panel = container.querySelector('#settingsPanel');
     if (panel) panel.style.display = showSettings ? 'block' : 'none';
-
-    // If closing settings, hide all controls to return to video only
     if (!showSettings) {
       showControls = false;
-      const overlay = container.querySelector('#watchOverlay');
       if (overlay) overlay.classList.add('hidden');
     }
   });
 
-  // Load subtitle file
   const subtitleFileInput = container.querySelector('#subtitleFileInput');
   container.querySelector('#loadSubtitleBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -499,44 +407,37 @@ function setupEventListeners(container, roomCode, isHost) {
     e.stopPropagation();
     const file = e.target.files[0];
     if (!file) return;
-    const text = await file.text();
-    subtitleCues = parseSRT(text);
-    subtitlesEnabled = true;
-    activeSubSource = 'external';
-    disableAllNativeTextTracks();
+    if (externalSubtitleBlobUrl) URL.revokeObjectURL(externalSubtitleBlobUrl);
+    externalSubtitleBlobUrl = URL.createObjectURL(file);
+    const lang = file.name.match(/\.([a-z]{2,3})\.(srt|vtt|ass|ssa)$/i)?.[1] || 'und';
+    movi.loadExternalSubtitle(externalSubtitleBlobUrl, lang, file.name);
     const status = container.querySelector('#subtitleStatus');
-    if (status) status.textContent = `✓ ${file.name} (${subtitleCues.length} cues)`;
-    const btn = container.querySelector('#subtitleToggleBtn');
-    if (btn) btn.style.opacity = '1';
-    // Update the dropdown to show external selection
-    const select = container.querySelector('#subtitleTrackSelect');
-    if (select) {
-      // Add or update external option
-      let extOpt = select.querySelector('option[value="external"]');
-      if (!extOpt) {
-        extOpt = document.createElement('option');
-        extOpt.value = 'external';
-        select.appendChild(extOpt);
-      }
-      extOpt.textContent = `📄 ${file.name}`;
-      select.value = 'external';
-    }
+    if (status) status.textContent = `✓ ${file.name}`;
   });
 
-  // Subtitle track selector (embedded + external)
   container.querySelector('#subtitleTrackSelect')?.addEventListener('change', (e) => {
     e.stopPropagation();
     const val = e.target.value;
-    handleSubtitleTrackChange(container, val);
+    if (val === 'off') {
+      movi.setSubtitleTrack(null);
+    } else {
+      const trackId = parseInt(val, 10);
+      if (!isNaN(trackId)) movi.setSubtitleTrack(trackId);
+    }
   });
 
-  // Audio track selector
   container.querySelector('#audioTrackSelect')?.addEventListener('change', (e) => {
     e.stopPropagation();
-    handleAudioTrackChange(container, e.target.value);
+    const val = e.target.value;
+    if (val === 'default') {
+      const tracks = movi.getAudioTracks();
+      if (tracks.length > 0) movi.setAudioTrack(tracks[0].id);
+    } else {
+      const trackId = parseInt(val, 10);
+      if (!isNaN(trackId)) movi.setAudioTrack(trackId);
+    }
   });
 
-  // Chat toggle
   container.querySelector('#chatToggleBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     showChat = !showChat;
@@ -563,7 +464,6 @@ function setupEventListeners(container, roomCode, isHost) {
     }
   });
 
-  // Leave
   container.querySelector('#leaveBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     container.querySelector('#leaveModal').style.display = 'flex';
@@ -581,7 +481,6 @@ function setupEventListeners(container, roomCode, isHost) {
     navigate('#/');
   });
 
-  // Keyboard controls
   const keyHandler = (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -594,32 +493,32 @@ function setupEventListeners(container, roomCode, isHost) {
       case 'ArrowRight':
         e.preventDefault();
         if (canControl(isHost)) {
-          const newPos = Math.min((videoElement.currentTime + 10) * 1000, (videoElement.duration || 0) * 1000);
+          const newPos = Math.min((movi.getCurrentTime() + 10), movi.getDuration() || 0);
           if (roomCode !== 'local') {
-            syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos));
+            syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos * 1000));
           }
-          videoElement.currentTime = newPos / 1000;
+          movi.setCurrentTime(newPos);
         }
         break;
       case 'ArrowLeft':
         e.preventDefault();
         if (canControl(isHost)) {
-          const newPos = Math.max((videoElement.currentTime - 10) * 1000, 0);
+          const newPos = Math.max((movi.getCurrentTime() - 10), 0);
           if (roomCode !== 'local') {
-            syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos));
+            syncEngine.broadcastCommand(roomCode, userId, 'seek', Math.round(newPos * 1000));
           }
-          videoElement.currentTime = newPos / 1000;
+          movi.setCurrentTime(newPos);
         }
         break;
       case 'ArrowUp':
         e.preventDefault();
-        videoElement.volume = Math.min(videoElement.volume + 0.1, 1);
-        volumeSlider.value = Math.round(videoElement.volume * 100);
+        movi.setVolume(Math.min(movi.getVolume() + 0.1, 1));
+        volumeSlider.value = Math.round(movi.getVolume() * 100);
         break;
       case 'ArrowDown':
         e.preventDefault();
-        videoElement.volume = Math.max(videoElement.volume - 0.1, 0);
-        volumeSlider.value = Math.round(videoElement.volume * 100);
+        movi.setVolume(Math.max(movi.getVolume() - 0.1, 0));
+        volumeSlider.value = Math.round(movi.getVolume() * 100);
         break;
       case 'c':
         e.preventDefault();
@@ -647,17 +546,17 @@ function canControl(isHost) {
 }
 
 function togglePlayPause(roomCode, isHost) {
-  if (videoElement.paused) {
-    videoElement.play().catch(() => {});
+  if (movi.isPaused()) {
+    movi.play();
     if (roomCode !== 'local') {
       syncEngine.broadcastCommand(roomCode, userId, 'play',
-        Math.round(videoElement.currentTime * 1000), videoElement.playbackRate);
+        Math.round(movi.getCurrentTime() * 1000), movi.getPlaybackRate());
     }
   } else {
-    videoElement.pause();
+    movi.pause();
     if (roomCode !== 'local') {
       syncEngine.broadcastCommand(roomCode, userId, 'pause',
-        Math.round(videoElement.currentTime * 1000), videoElement.playbackRate);
+        Math.round(movi.getCurrentTime() * 1000), movi.getPlaybackRate());
     }
   }
 }
@@ -673,7 +572,7 @@ function toggleControls(container) {
 function resetControlsTimer(container) {
   if (controlsTimeout) clearTimeout(controlsTimeout);
   controlsTimeout = setTimeout(() => {
-    if (showSettings) return; // Don't auto-hide if settings panel is open
+    if (showSettings) return;
     showControls = false;
     const overlay = container.querySelector('#watchOverlay');
     if (overlay) overlay.classList.add('hidden');
@@ -682,9 +581,8 @@ function resetControlsTimer(container) {
 }
 
 function updateProgress(container) {
-  if (!videoElement) return;
-  const duration = videoElement.duration || 0;
-  const current = videoElement.currentTime || 0;
+  const duration = movi.getDuration() || 0;
+  const current = movi.getCurrentTime() || 0;
   const progress = duration > 0 ? (current / duration) * 1000 : 0;
 
   const seekBar = container.querySelector('#seekBar');
@@ -704,13 +602,13 @@ function updateProgress(container) {
   if (timeTotal) {
     timeTotal.textContent = showRemainingTime ? `-${formatTime(duration - current)}` : formatTime(duration);
   }
+}
 
-  // Update play icons
-  const isPlaying = !videoElement.paused;
+function updatePlayIcons(container) {
+  const isPlaying = !movi.isPaused();
   const playIconSvg = isPlaying
     ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
     : '<polygon points="5 3 19 12 5 21 5 3"/>';
-
   const centerIcon = container.querySelector('#centerPlayIcon');
   const bottomIcon = container.querySelector('#bottomPlayIcon');
   if (centerIcon) centerIcon.innerHTML = playIconSvg;
@@ -721,7 +619,6 @@ function updateSyncChip(container) {
   const dot = container.querySelector('.sync-dot');
   const text = container.querySelector('#syncText');
   if (!dot || !text) return;
-
   dot.className = 'sync-dot ' + syncStatus;
   text.textContent = syncStatus === 'synced' ? 'Synced' : syncStatus === 'correcting' ? 'Correcting' : 'Reconnecting';
 }
@@ -743,19 +640,13 @@ function updateChatIndicators(container) {
   const badge = container.querySelector('#chatBadge');
   const dot = container.querySelector('#videoUnreadDot');
   const hasUnread = currentMessages.length > lastReadCount;
-  
-  if (badge) {
-    badge.style.display = hasUnread && !showChat ? 'flex' : 'none';
-  }
-  if (dot) {
-    dot.style.display = (!showControls && hasUnread && !showChat) ? 'block' : 'none';
-  }
+  if (badge) badge.style.display = hasUnread && !showChat ? 'flex' : 'none';
+  if (dot) dot.style.display = (!showControls && hasUnread && !showChat) ? 'block' : 'none';
 }
 
 function renderWatchChat(container, roomCode) {
   const chatContainer = container.querySelector('#watchChatContainer');
   if (!chatContainer) return;
-
   createChatUI(chatContainer, {
     messages: currentMessages,
     currentUserId: userId,
@@ -785,7 +676,6 @@ function setupVoiceChat(container) {
   unsubVoiceState = voiceChat.onStateChange((voiceState) => {
     const button = container.querySelector('#voiceMicBtn');
     if (!button) return;
-
     button.classList.remove('voice-disconnected', 'voice-connecting', 'voice-connected');
     button.classList.add(`voice-${voiceState}`);
     button.disabled = voiceState === 'connecting';
@@ -794,10 +684,7 @@ function setupVoiceChat(container) {
       : voiceState === 'connecting'
         ? 'Connecting to Voice Chat'
         : 'Join Voice Chat';
-
-    if (voiceState !== 'connected') {
-      voicePeerWasConnected = false;
-    }
+    if (voiceState !== 'connected') voicePeerWasConnected = false;
   });
 
   unsubVoicePeer = voiceChat.onPeerChange((connected) => {
@@ -811,7 +698,6 @@ function setupVoiceChat(container) {
 function showWatchToast(container, message) {
   const toast = container.querySelector('#watchToast');
   if (!toast) return;
-
   toast.textContent = message;
   toast.classList.add('visible');
   clearTimeout(toast._hideTimeout);
@@ -828,48 +714,16 @@ function cleanup(roomCode) {
   if (unsubVoicePeer) { unsubVoicePeer(); unsubVoicePeer = null; }
   voicePeerWasConnected = false;
   void voiceChat.cleanup();
+  movi.destroyPlayer();
+  if (externalSubtitleBlobUrl) {
+    URL.revokeObjectURL(externalSubtitleBlobUrl);
+    externalSubtitleBlobUrl = null;
+  }
 
   const watchScreen = document.querySelector('#watchScreen');
   if (watchScreen?._keyHandler) {
     document.removeEventListener('keydown', watchScreen._keyHandler);
   }
-
-  if (videoElement) {
-    videoElement.pause();
-    videoElement.src = '';
-    videoElement = null;
-  }
-
-  if (jassub) {
-    try { jassub.destroy(); } catch (_) {}
-    jassub = null;
-  }
-
-  if (boundResizeJassubCanvas) {
-    window.removeEventListener('resize', boundResizeJassubCanvas);
-    document.removeEventListener('fullscreenchange', boundResizeJassubCanvas);
-    boundResizeJassubCanvas = null;
-  }
-
-  if (audioCtx) {
-    try { audioCtx.close(); } catch (_) {}
-    audioCtx = null;
-  }
-
-  if (decodeWatchdog) {
-    clearTimeout(decodeWatchdog);
-    decodeWatchdog = null;
-  }
-
-  stopAllAudioSources();
-  activeAudioSource = 'default';
-  currentAudioTrackId = -1;
-  activeSources = [];
-  nextExpectedPts = null;
-  nextExpectedCtxTime = null;
-  isDecodingAudio = false;
-  audioEmptyCount = 0;
-  gainNode = null;
 
   currentMessages = [];
   showChat = false;
@@ -878,12 +732,8 @@ function cleanup(roomCode) {
   lastReadCount = 0;
   allowControls = true;
   syncStatus = 'synced';
-  subtitleCues = [];
-  subtitlesEnabled = false;
-  currentSubtitle = '';
-  activeSubSource = 'none';
-  activeNativeTrackIndex = -1;
-  tracksDetected = false;
+  showRemainingTime = false;
+  isReady = false;
 }
 
 function formatTime(seconds) {
@@ -895,596 +745,4 @@ function formatTime(seconds) {
     return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
   return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-// ===== Subtitle Support =====
-
-function parseSRT(text) {
-  // Handles both SRT and VTT formats
-  const cues = [];
-  // Normalize line endings
-  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  // Split into blocks
-  const blocks = normalized.split(/\n\n+/);
-
-  for (const block of blocks) {
-    const lines = block.trim().split('\n');
-    if (lines.length < 2) continue;
-
-    // Find the timestamp line
-    let tsLine = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('-->')) {
-        tsLine = i;
-        break;
-      }
-    }
-    if (tsLine === -1) continue;
-
-    const times = lines[tsLine].split('-->');
-    if (times.length !== 2) continue;
-
-    const startMs = parseTimestamp(times[0].trim());
-    const endMs = parseTimestamp(times[1].trim().split(' ')[0]); // strip position info
-
-    if (startMs === null || endMs === null) continue;
-
-    // Everything after timestamp line is the text
-    const textContent = lines.slice(tsLine + 1).join('\n')
-      .replace(/<[^>]+>/g, '') // strip HTML tags
-      .replace(/\{[^}]+\}/g, '') // strip ASS/SSA tags
-      .trim();
-
-    if (textContent) {
-      cues.push({ start: startMs, end: endMs, text: textContent });
-    }
-  }
-
-  return cues.sort((a, b) => a.start - b.start);
-}
-
-function parseTimestamp(ts) {
-  // Supports: 00:00:00,000 or 00:00:00.000 or 00:00.000
-  const clean = ts.replace(',', '.');
-  const parts = clean.split(':');
-  try {
-    if (parts.length === 3) {
-      const h = parseInt(parts[0]);
-      const m = parseInt(parts[1]);
-      const sms = parseFloat(parts[2]);
-      return (h * 3600 + m * 60 + sms) * 1000;
-    } else if (parts.length === 2) {
-      const m = parseInt(parts[0]);
-      const sms = parseFloat(parts[1]);
-      return (m * 60 + sms) * 1000;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function updateSubtitleOverlay(container) {
-  if (!videoElement) return;
-  const overlay = container.querySelector('#subtitleOverlay');
-  if (!overlay) return;
-
-  // For native embedded tracks rendered via cuechange, skip manual rendering
-  if (activeSubSource === 'native') {
-    // Native track cues are handled by onNativeCueChange
-    return;
-  }
-
-  if (!subtitlesEnabled || subtitleCues.length === 0) {
-    if (currentSubtitle !== '') {
-      currentSubtitle = '';
-      overlay.innerHTML = '';
-    }
-    return;
-  }
-
-  const currentTime = videoElement.currentTime;
-
-  let text = '';
-  for (const cue of subtitleCues) {
-    // cue.start/end are in seconds (ASS-parsed) or milliseconds (SRT-parsed)
-    // Normalize: if cue.start > 10000, it's likely in milliseconds
-    const s = cue.start > 10000 ? cue.start / 1000 : cue.start;
-    const e = cue.end > 10000 ? cue.end / 1000 : cue.end;
-    if (currentTime >= s && currentTime <= e) {
-      text = cue.text;
-      break;
-    }
-    if (s > currentTime) break;
-  }
-
-  if (text !== currentSubtitle) {
-    currentSubtitle = text;
-    // Text from our ASS parser may contain <br> for line breaks — render directly
-    overlay.innerHTML = text ? `<span class="subtitle-text">${text}</span>` : '';
-  }
-}
-
-function escapeSubHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-}
-
-// ===== Embedded Track Detection =====
-
-let activeSubSource = 'none'; // 'none' | 'external' | 'native'
-let activeNativeTrackIndex = -1;
-let tracksDetected = false;
-
-function detectEmbeddedTracks(container) {
-  if (tracksDetected) return;
-  tracksDetected = true;
-  
-  if (libavWorker && audioFileBlob) {
-    const subHint = container.querySelector('#subtitleHint');
-    const audHint = container.querySelector('#audioHint');
-    if (subHint) subHint.textContent = 'Probing embedded tracks...';
-    if (audHint) audHint.textContent = 'Probing embedded tracks...';
-    
-    libavWorker.onmessage = (e) => handleWorkerMessage(e, container);
-    libavWorker.postMessage({ type: 'probe', file: audioFileBlob });
-  } else {
-    detectEmbeddedSubtitles(container);
-    detectEmbeddedAudio(container);
-  }
-}
-
-function stopAllAudioSources() {
-  activeSources.forEach(source => {
-    try { source.stop(); } catch (_) {}
-  });
-  activeSources = [];
-}
-
-const AUDIO_LOOKAHEAD = 0.1; // seconds — scheduling safety margin
-
-function playAudioChunk(pcm, channels, sampleRate, timestamp) {
-  if (!audioCtx || !videoElement) return;
-
-  const buffer = audioCtx.createBuffer(channels, pcm[0].length, sampleRate);
-  for (let c = 0; c < channels; c++) {
-    if (pcm[c]) {
-      buffer.copyToChannel(pcm[c], c);
-    }
-  }
-
-  const playbackRate = videoElement.playbackRate || 1.0;
-  let playTime;
-  let bufferOffset = 0;
-
-  const isContiguous = nextExpectedPts !== null && 
-                       Math.abs(timestamp - nextExpectedPts) < 0.3; // 300ms threshold
-
-  if (isContiguous) {
-    playTime = nextExpectedCtxTime;
-    bufferOffset = 0;
-  } else {
-    // First chunk after seek/start - anchor to video clock with lookahead safety margin
-    const timeDelta = timestamp - videoElement.currentTime;
-    const scheduleAt = audioCtx.currentTime + AUDIO_LOOKAHEAD + Math.max(0, timeDelta / playbackRate);
-    
-    if (timeDelta >= 0) {
-      playTime = scheduleAt;
-      bufferOffset = 0;
-    } else {
-      const skipSeconds = -timeDelta;
-      bufferOffset = Math.min(skipSeconds, buffer.duration - 0.01);
-      playTime = audioCtx.currentTime + AUDIO_LOOKAHEAD;
-    }
-  }
-
-  if (bufferOffset >= buffer.duration) return;
-
-  console.log('[watch] scheduling chunk: playTime=', playTime, 
-              'bufferOffset=', bufferOffset, 'audioCtx.currentTime=', audioCtx.currentTime,
-              'video.currentTime=', videoElement.currentTime);
-
-  const source = audioCtx.createBufferSource();
-  source.buffer = buffer;
-  source.playbackRate.value = playbackRate;
-  source.connect(gainNode);
-  source.start(playTime, bufferOffset);
-
-  activeSources.push(source);
-
-  source.onended = () => {
-    const idx = activeSources.indexOf(source);
-    if (idx !== -1) activeSources.splice(idx, 1);
-  };
-
-  const samplesPlayed = (buffer.duration - bufferOffset);
-  nextExpectedPts = timestamp + buffer.duration;
-  nextExpectedCtxTime = playTime + samplesPlayed / playbackRate;
-}
-
-function checkAudioBufferQueue() {
-  if (!audioCtx || !videoElement || videoElement.paused || isDecodingAudio || activeAudioSource !== 'libav') return;
-
-  const queuedDuration = (nextExpectedCtxTime !== null) ? (nextExpectedCtxTime - audioCtx.currentTime) : 0;
-
-  if (queuedDuration < 5.0) {
-    isDecodingAudio = true;
-
-    if (decodeWatchdog) clearTimeout(decodeWatchdog);
-    decodeWatchdog = setTimeout(() => {
-      console.warn('[watch] decode watchdog fired - unsticking isDecodingAudio');
-      isDecodingAudio = false;
-    }, 30000);
-
-    libavWorker.postMessage({
-      type: 'decode_more',
-      duration: 5.0
-    });
-  }
-}
-
-function handleWorkerMessage(e, container) {
-  const { type, tracks, pcm, channels, frames, sampleRate, text, timestamp, error } = e.data;
-  if (type === 'probed') {
-    populateLibavTracks(container, tracks);
-  } else if (type === 'audio_chunk') {
-    if (decodeWatchdog) {
-      clearTimeout(decodeWatchdog);
-      decodeWatchdog = null;
-    }
-    isDecodingAudio = false;
-    audioEmptyCount = 0; // reset on successful decode
-    console.log('[watch] audio_chunk received: timestamp=', timestamp, 
-                'channels=', channels, 'sampleRate=', sampleRate,
-                'samples=', pcm[0]?.length, 'audioCtx.state=', audioCtx?.state);
-    playAudioChunk(pcm, channels, sampleRate, timestamp);
-    checkAudioBufferQueue();
-  } else if (type === 'audio_done') {
-    if (decodeWatchdog) {
-      clearTimeout(decodeWatchdog);
-      decodeWatchdog = null;
-    }
-    isDecodingAudio = false;
-  } else if (type === 'audio_chunk_empty') {
-    if (decodeWatchdog) {
-      clearTimeout(decodeWatchdog);
-      decodeWatchdog = null;
-    }
-    isDecodingAudio = false;
-    // Track consecutive empty responses — stop after 3 to prevent spam
-    audioEmptyCount = (audioEmptyCount || 0) + 1;
-    if (audioEmptyCount <= 3) {
-      console.warn(`[watch] audio_chunk_empty (attempt ${audioEmptyCount}/3) — retrying...`);
-      checkAudioBufferQueue();
-    } else {
-      console.error('[watch] audio decoder producing no output after 3 attempts — stopping');
-      const audHint = container.querySelector('#audioHint');
-      if (audHint) audHint.textContent = 'Audio decode error: no output from decoder. Try a different track.';
-    }
-  } else if (type === 'sub_data') {
-    console.log('[watch] sub_data received, text length=', text?.length);
-    // Parse ASS Dialogue lines into timed cues for HTML overlay rendering
-    const lines = text.split('\n');
-    subtitleCues = [];
-    for (const line of lines) {
-      const m = line.match(/^Dialogue:\s*\d+,(\d+:\d{2}:\d{2}\.\d{2}),(\d+:\d{2}:\d{2}\.\d{2}),.*?,.*?,\d+,\d+,\d+,.*?,(.+)$/);
-      if (m) {
-        const parseTime = (t) => {
-          const [h, mm, rest] = t.split(':');
-          const [s, cs] = rest.split('.');
-          return parseInt(h) * 3600 + parseInt(mm) * 60 + parseInt(s) + parseInt(cs) / 100;
-        };
-        const start = parseTime(m[1]);
-        const end = parseTime(m[2]);
-        const txt = m[3].replace(/\\N/g, '<br>').replace(/\{[^}]*\}/g, '');
-        subtitleCues.push({ start, end, text: txt });
-      }
-    }
-    subtitlesEnabled = true;
-    activeSubSource = 'libav';
-    console.log(`[watch] Parsed ${subtitleCues.length} subtitle cues`);
-    const btn = container.querySelector('#subtitleToggleBtn');
-    if (btn) btn.style.opacity = '1';
-    const hint = container.querySelector('#subtitleHint');
-    if (hint) hint.textContent = `${subtitleCues.length} subtitle cues loaded`;
-  
-  } else if (type === 'error') {
-    console.error('libav error:', error);
-    const subHint = container.querySelector('#subtitleHint');
-    const audHint = container.querySelector('#audioHint');
-    const source = e.data.source;
-    
-    if (source === 'audio') {
-      if (decodeWatchdog) {
-        clearTimeout(decodeWatchdog);
-        decodeWatchdog = null;
-      }
-      isDecodingAudio = false;
-      if (audHint) audHint.textContent = `Codec Error: ${error}. Falling back to default audio.`;
-      const select = container.querySelector('#audioTrackSelect');
-      if (select && select.value !== 'default') {
-        select.value = 'default';
-        handleAudioTrackChange(container, 'default');
-      }
-    } else if (source === 'sub') {
-      if (subHint) subHint.textContent = `Subtitle Error: ${error}`;
-    } else {
-      if (subHint) subHint.textContent = `Error: ${error}`;
-      if (audHint) audHint.textContent = `Error: ${error}`;
-    }
-  }
-}
-
-function populateLibavTracks(container, tracks) {
-  const subSelect = container.querySelector('#subtitleTrackSelect');
-  const subHint = container.querySelector('#subtitleHint');
-  const audSelect = container.querySelector('#audioTrackSelect');
-  const audHint = container.querySelector('#audioHint');
-
-  const audioTracks = tracks.filter(t => t.type === 'audio');
-  const subTracks = tracks.filter(t => t.type === 'sub');
-
-  if (audSelect && audioTracks.length > 0) {
-    audSelect.innerHTML = '<option value="default">Default</option>';
-    audioTracks.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = `libav-aud-${t.id}`;
-      opt.textContent = `🔊 ${t.title || 'Track'} [${t.lang}]`;
-      audSelect.appendChild(opt);
-    });
-    if (audHint) audHint.textContent = `${audioTracks.length} audio tracks found in MKV`;
-  }
-
-  if (subSelect && subTracks.length > 0) {
-    subTracks.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = `libav-sub-${t.id}`;
-      opt.textContent = `🎬 ${t.title || 'Track'} [${t.lang}]`;
-      subSelect.appendChild(opt);
-    });
-    if (subHint) subHint.textContent = `${subTracks.length} subtitle tracks found in MKV`;
-  }
-}
-
-function detectEmbeddedSubtitles(container) {
-  const select = container.querySelector('#subtitleTrackSelect');
-  const hint = container.querySelector('#subtitleHint');
-  if (!select || !videoElement) return;
-
-  const textTracks = videoElement.textTracks;
-  let embeddedCount = 0;
-
-  if (textTracks && textTracks.length > 0) {
-    for (let i = 0; i < textTracks.length; i++) {
-      const track = textTracks[i];
-      // Only show subtitle/captions tracks
-      if (track.kind === 'subtitles' || track.kind === 'captions' || track.kind === 'metadata') {
-        embeddedCount++;
-        const label = track.label || track.language || `Embedded Track ${embeddedCount}`;
-        const langTag = track.language ? ` [${track.language.toUpperCase()}]` : '';
-        const opt = document.createElement('option');
-        opt.value = `native-${i}`;
-        opt.textContent = `🎬 ${label}${langTag}`;
-        select.appendChild(opt);
-        // Disable native rendering — we render via our overlay
-        track.mode = 'hidden';
-      }
-    }
-  }
-
-  if (embeddedCount > 0) {
-    if (hint) hint.textContent = `${embeddedCount} embedded subtitle track${embeddedCount > 1 ? 's' : ''} found`;
-  } else {
-    if (hint) {
-      hint.innerHTML = 'Browsers cannot detect embedded subtitles in MKV files.<br>Please load an external .srt/.vtt file below.';
-      hint.style.lineHeight = '1.4';
-      hint.style.opacity = '0.9';
-    }
-  }
-}
-
-function detectEmbeddedAudio(container) {
-  const select = container.querySelector('#audioTrackSelect');
-  const hint = container.querySelector('#audioHint');
-  if (!select || !videoElement) return;
-
-  // Try native audioTracks API (Safari, Chrome with flag)
-  if (videoElement.audioTracks && videoElement.audioTracks.length > 0) {
-    const tracks = videoElement.audioTracks;
-    if (tracks.length > 1) {
-      select.innerHTML = '';
-      for (let i = 0; i < tracks.length; i++) {
-        const track = tracks[i];
-        const label = track.label || track.language || `Audio ${i + 1}`;
-        const langTag = track.language ? ` [${track.language.toUpperCase()}]` : '';
-        const opt = document.createElement('option');
-        opt.value = `native-${i}`;
-        opt.textContent = `🔊 ${label}${langTag}`;
-        opt.selected = track.enabled;
-        select.appendChild(opt);
-      }
-      if (hint) hint.textContent = `${tracks.length} audio tracks found`;
-    } else if (tracks.length === 1) {
-      const track = tracks[0];
-      select.innerHTML = '';
-      const opt = document.createElement('option');
-      opt.value = 'native-0';
-      opt.textContent = `🔊 ${track.label || track.language || 'Default'}`;
-      opt.selected = true;
-      select.appendChild(opt);
-      if (hint) hint.textContent = '1 audio track (default)';
-    }
-  } else {
-    // audioTracks API not available — show info
-    if (hint) {
-      hint.innerHTML = 'Browsers cannot detect multiple audio tracks in MKV files.<br>Please use the Android app for full MKV track support.';
-      hint.style.lineHeight = '1.4';
-      hint.style.opacity = '0.9';
-    }
-  }
-}
-
-function handleSubtitleTrackChange(container, value) {
-  const overlay = container.querySelector('#subtitleOverlay');
-
-  if (value === 'off') {
-    // Turn off all subtitles
-    subtitlesEnabled = false;
-    activeSubSource = 'none';
-    activeNativeTrackIndex = -1;
-    subtitleCues = [];
-    currentSubtitle = '';
-    if (overlay) overlay.innerHTML = '';
-    disableAllNativeTextTracks();
-    if (jassub) jassub.freeTrack();
-    const btn = container.querySelector('#subtitleToggleBtn');
-    if (btn) btn.style.opacity = '0.5';
-    return;
-  }
-
-  if (value === 'external') {
-    // Switch to externally loaded subtitles
-    activeSubSource = 'external';
-    subtitlesEnabled = subtitleCues.length > 0;
-    disableAllNativeTextTracks();
-    if (jassub) jassub.freeTrack();
-    const btn = container.querySelector('#subtitleToggleBtn');
-    if (btn) btn.style.opacity = subtitlesEnabled ? '1' : '0.5';
-    return;
-  }
-  
-  if (value.startsWith('libav-sub-')) {
-    activeSubSource = 'libav';
-    subtitlesEnabled = true;
-    disableAllNativeTextTracks();
-    if (overlay) overlay.innerHTML = '';
-    const trackId = parseInt(value.replace('libav-sub-', ''));
-    if (libavWorker) libavWorker.postMessage({ type: 'extract_sub', file: audioFileBlob, trackId });
-    const btn = container.querySelector('#subtitleToggleBtn');
-    if (btn) btn.style.opacity = '1';
-    return;
-  }
-
-  if (value.startsWith('native-')) {
-    const idx = parseInt(value.replace('native-', ''));
-    activeSubSource = 'native';
-    activeNativeTrackIndex = idx;
-    subtitlesEnabled = true;
-    currentSubtitle = '';
-    if (overlay) overlay.innerHTML = '';
-
-    // Enable this track, disable all others
-    const textTracks = videoElement.textTracks;
-    for (let i = 0; i < textTracks.length; i++) {
-      if (i === idx) {
-        textTracks[i].mode = 'hidden'; // hidden = we read cues but browser doesn't render
-        // Listen to cue changes
-        textTracks[i].oncuechange = () => onNativeCueChange(container, i);
-      } else {
-        textTracks[i].mode = 'disabled';
-        textTracks[i].oncuechange = null;
-      }
-    }
-    const btn = container.querySelector('#subtitleToggleBtn');
-    if (btn) btn.style.opacity = '1';
-  }
-}
-
-function onNativeCueChange(container, trackIndex) {
-  if (!videoElement || activeSubSource !== 'native') return;
-  const overlay = container.querySelector('#subtitleOverlay');
-  if (!overlay) return;
-
-  const track = videoElement.textTracks[trackIndex];
-  if (!track || !track.activeCues || track.activeCues.length === 0) {
-    if (currentSubtitle !== '') {
-      currentSubtitle = '';
-      overlay.innerHTML = '';
-    }
-    return;
-  }
-
-  // Combine all active cues
-  let text = '';
-  for (let i = 0; i < track.activeCues.length; i++) {
-    const cue = track.activeCues[i];
-    if (cue.text) {
-      text += (text ? '\n' : '') + cue.text;
-    }
-  }
-
-  if (text !== currentSubtitle) {
-    currentSubtitle = text;
-    overlay.innerHTML = text ? `<span class="subtitle-text">${escapeSubHtml(text)}</span>` : '';
-  }
-}
-
-function ensureAudioContext(container) {
-  if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  gainNode = audioCtx.createGain();
-  const volumeSlider = container.querySelector('#volumeSlider');
-  const initialVolume = volumeSlider ? (parseInt(volumeSlider.value) / 100) : 1.0;
-  gainNode.gain.setValueAtTime(initialVolume, audioCtx.currentTime);
-  gainNode.connect(audioCtx.destination);
-}
-
-function handleAudioTrackChange(container, value) {
-  if (value === 'default') {
-    activeAudioSource = 'default';
-    currentAudioTrackId = -1;
-    videoElement.muted = false;
-    stopAllAudioSources();
-    nextExpectedPts = null;
-    nextExpectedCtxTime = null;
-    if (audioCtx) {
-      audioCtx.suspend();
-    }
-    return;
-  }
-  
-  if (value.startsWith('libav-aud-')) {
-    ensureAudioContext(container);
-    activeAudioSource = 'libav';
-    const trackId = parseInt(value.replace('libav-aud-', ''));
-    currentAudioTrackId = trackId;
-    videoElement.muted = true;
-    if (audioCtx) {
-      audioCtx.resume();
-    }
-    stopAllAudioSources();
-    nextExpectedPts = null;
-    nextExpectedCtxTime = null;
-    audioEmptyCount = 0;
-    
-    isDecodingAudio = true;
-    libavWorker.postMessage({
-      type: 'start_decode',
-      file: audioFileBlob,
-      trackId,
-      timestamp: videoElement.currentTime
-    });
-    return;
-  }
-
-  if (!videoElement || !videoElement.audioTracks) return;
-
-  if (value.startsWith('native-')) {
-    activeAudioSource = 'native';
-    currentAudioTrackId = -1;
-    stopAllAudioSources();
-    nextExpectedPts = null;
-    nextExpectedCtxTime = null;
-    const idx = parseInt(value.replace('native-', ''));
-    for (let i = 0; i < videoElement.audioTracks.length; i++) {
-      videoElement.audioTracks[i].enabled = (i === idx);
-    }
-  }
-}
-
-function disableAllNativeTextTracks() {
-  if (!videoElement || !videoElement.textTracks) return;
-  for (let i = 0; i < videoElement.textTracks.length; i++) {
-    videoElement.textTracks[i].mode = 'disabled';
-    videoElement.textTracks[i].oncuechange = null;
-  }
 }

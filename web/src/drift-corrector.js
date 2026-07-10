@@ -3,8 +3,8 @@
  * 3-tier drift correction for synchronized video playback.
  */
 
-const ACCEPTABLE_DRIFT_MS = 75;
-const HARD_SEEK_DRIFT_MS = 2000;
+const ACCEPTABLE_DRIFT_MS = 500;
+const HARD_SEEK_DRIFT_MS = 3000;
 
 let resetTimer = null;
 

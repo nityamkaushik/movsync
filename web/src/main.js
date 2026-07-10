@@ -1,4 +1,5 @@
 import './style.css';
+import 'coi-serviceworker';
 import { registerRoute, startRouter } from './router.js';
 import { renderHome } from './screens/home.js';
 import { renderCreate } from './screens/create.js';
