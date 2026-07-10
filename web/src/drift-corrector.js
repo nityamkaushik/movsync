@@ -21,7 +21,7 @@ export function evaluate(currentPosition, expectedPosition) {
   const mag = Math.abs(drift);
 
   if (mag < SOFT_SEEK_THRESHOLD_MS) {
-    const speedAdjust = Math.min(Math.max(drift * PROPORTIONAL_GAIN, MIN_SPEED - 1), MAX_SPEED - 1);
+    const speedAdjust = Math.min(Math.max(-drift * PROPORTIONAL_GAIN, MIN_SPEED - 1), MAX_SPEED - 1);
     const speed = Math.min(Math.max(1 + speedAdjust, MIN_SPEED), MAX_SPEED);
     return { type: 'softCorrect', driftMs: drift, speed };
   } else {

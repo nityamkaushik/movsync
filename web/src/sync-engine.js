@@ -72,7 +72,7 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
 
       const oneWayLatency = firebaseSync.getOneWayLatency();
       const serverNow = firebaseSync.getServerTime();
-      const adjustedPosition = heartbeat.position + (serverNow - heartbeat.timestamp) - oneWayLatency;
+      const adjustedPosition = heartbeat.position + (serverNow - heartbeat.timestamp) + oneWayLatency;
 
       if (heartbeat.isPlaying && video.paused) {
         video.play().catch(() => {});
@@ -87,7 +87,7 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
     firebaseSync.getHeartbeatOnce(roomCode).then((heartbeat) => {
       if (heartbeat) {
         const oneWayLatency = firebaseSync.getOneWayLatency();
-        const adjustedPosition = heartbeat.position + (firebaseSync.getServerTime() - heartbeat.timestamp) - oneWayLatency;
+        const adjustedPosition = heartbeat.position + (firebaseSync.getServerTime() - heartbeat.timestamp) + oneWayLatency;
         video.currentTime = Math.max(adjustedPosition / 1000, 0);
         if (heartbeat.isPlaying) {
           video.play().catch(() => {});

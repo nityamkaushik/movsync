@@ -29,7 +29,7 @@ class DriftCorrector {
         val mag = abs(drift)
 
         if (mag < SOFT_SEEK_THRESHOLD_MS) {
-            val speedAdjust = (drift * PROPORTIONAL_GAIN).coerceIn(
+            val speedAdjust = (-drift * PROPORTIONAL_GAIN).coerceIn(
                 MIN_SPEED - 1f, MAX_SPEED - 1f
             )
             val speed = (1f + speedAdjust).coerceIn(MIN_SPEED, MAX_SPEED)
