@@ -102,6 +102,23 @@
   border-color: var(--electric-purple);
 }
 
+.phone-name-input {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  outline: none;
+  width: 120px;
+  text-align: center;
+}
+
+.phone-name-input:focus {
+  border-color: var(--electric-purple);
+}
+
 .top-bar-name-edit {
   background: none;
   border: none;
@@ -1934,6 +1951,9 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
     display: flex;
   }
   .top-bar {
+    display: none;
+  }
+  .config-warning {
     display: none;
   }
 }
