@@ -171,7 +171,7 @@ object StorageToApi {
                         if (thisPartSize <= 0) return@withPermit
 
                         val url = partUrls[partNumber] ?: getPartUrl(uploadId, partNumber, ownerToken, visitorToken)
-                        val etag = uploadPart(url, openStream(), start, thisPartSize, partNumber)
+                        val etag = uploadPart(url, openStream, start, thisPartSize, partNumber)
 
                         synchronized(completedLock) {
                             completedBytes += thisPartSize
