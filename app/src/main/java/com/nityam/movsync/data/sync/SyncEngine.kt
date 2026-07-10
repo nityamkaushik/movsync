@@ -15,12 +15,11 @@ class SyncEngine(
     private val driftCorrector: DriftCorrector
 ) {
     private var heartbeatJob: Job? = null
+    private var rttJob: Job? = null
     private var syncListener: ValueEventListener? = null
     private var heartbeatListener: ValueEventListener? = null
     private var playerListener: Player.Listener? = null
     private var applyingRemoteCommand = false
-    private var lastCommandTimestamp = 0L
-    private val commandCooldownMs = 1500L
 
     fun start(
         roomCode: String,
@@ -37,7 +36,7 @@ class SyncEngine(
         syncListener = firebaseSync.listenToSync(roomCode) { state ->
             if (state.senderId == userId) return@listenToSync
             applyingRemoteCommand = true
-            lastCommandTimestamp = System.currentTimeMillis()
+            driftCorrector.resetOnCommand()
             when (state.command) {
                 "play" -> {
                     player.seekTo(state.position)
@@ -66,26 +65,41 @@ class SyncEngine(
                             isPlaying = player.isPlaying
                         )
                     )
-                    delay(2_000L)
+                    delay(500L)
                 }
             }
         } else {
+            // Start periodic RTT measurement
+            rttJob = scope.launch {
+                while (true) {
+                    firebaseSync.measureRtt(roomCode)
+                    delay(30_000L)
+                }
+            }
+            // Initial RTT measurement
+            scope.launch { firebaseSync.measureRtt(roomCode) }
+
             heartbeatListener = firebaseSync.listenToHeartbeat(roomCode) { heartbeat ->
                 if (applyingRemoteCommand) return@listenToHeartbeat
-                val now = System.currentTimeMillis()
-                if (now - lastCommandTimestamp < commandCooldownMs) return@listenToHeartbeat
 
-                val adjustedPosition = heartbeat.position + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
+                val oneWayLatency = firebaseSync.getOneWayLatency()
+                val adjustedPosition = heartbeat.position
+                    + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
+                    - oneWayLatency
+
                 if (heartbeat.isPlaying && !player.isPlaying) {
                     player.play()
                 } else if (!heartbeat.isPlaying && player.isPlaying) {
                     player.pause()
                 }
-                driftCorrector.apply(player, adjustedPosition, !player.isPlaying, scope, onStatus)
+                driftCorrector.apply(player, adjustedPosition.coerceAtLeast(0L), !player.isPlaying, onStatus)
             }
             scope.launch {
                 firebaseSync.getHeartbeatOnce(roomCode)?.let { heartbeat ->
-                    val adjustedPosition = heartbeat.position + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
+                    val oneWayLatency = firebaseSync.getOneWayLatency()
+                    val adjustedPosition = heartbeat.position
+                        + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
+                        - oneWayLatency
                     player.seekTo(adjustedPosition.coerceAtLeast(0L))
                     if (heartbeat.isPlaying) player.play() else player.pause()
                 }
@@ -96,6 +110,8 @@ class SyncEngine(
     fun stop(roomCode: String, player: Player? = null) {
         heartbeatJob?.cancel()
         heartbeatJob = null
+        rttJob?.cancel()
+        rttJob = null
         syncListener?.let { firebaseSync.removeSyncListener(roomCode, it) }
         heartbeatListener?.let { firebaseSync.removeHeartbeatListener(roomCode, it) }
         syncListener = null

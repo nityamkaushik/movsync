@@ -1,77 +1,80 @@
 package com.nityam.movsync.data.sync
 
 import androidx.media3.common.Player
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-class DriftCorrector(
-    private val acceptableDriftMs: Long = 75L,
-    private val hardSeekDriftMs: Long = 2_000L
-) {
-    private var resetJob: Job? = null
-    private var repeatedHardSeeks = 0
+class DriftCorrector {
+    companion object {
+        private const val INSYNC_THRESHOLD_MS = 50L
+        private const val SOFT_SEEK_THRESHOLD_MS = 1500L
+        private const val PROPORTIONAL_GAIN = 1f / 5000f
+        private const val MIN_SPEED = 0.85f
+        private const val MAX_SPEED = 1.15f
+        private const val SMOOTH_FACTOR = 0.5
+    }
 
-    fun evaluate(currentPosition: Long, expectedPosition: Long): DriftAction {
-        val drift = currentPosition - expectedPosition
-        val magnitude = abs(drift)
-        return when {
-            magnitude < acceptableDriftMs -> DriftAction.InSync(drift)
-            magnitude < hardSeekDriftMs -> {
-                val speed = if (drift < 0L) 1.12f else 0.88f
-                DriftAction.SoftCorrect(drift, speed, (magnitude / 0.12f).toLong())
-            }
-            else -> DriftAction.HardSeek(drift, expectedPosition)
+    private var smoothedDrift = 0.0
+
+    fun evaluate(currentPositionMs: Long, expectedPositionMs: Long): DriftAction {
+        val rawDrift = currentPositionMs - expectedPositionMs
+        val magnitude = abs(rawDrift)
+
+        if (magnitude < INSYNC_THRESHOLD_MS) {
+            smoothedDrift = 0.0
+            return DriftAction.InSync(rawDrift)
+        }
+
+        smoothedDrift = SMOOTH_FACTOR * rawDrift + (1.0 - SMOOTH_FACTOR) * smoothedDrift
+        val drift = smoothedDrift.toLong()
+        val mag = abs(drift)
+
+        if (mag < SOFT_SEEK_THRESHOLD_MS) {
+            val speedAdjust = (drift * PROPORTIONAL_GAIN).coerceIn(
+                MIN_SPEED - 1f, MAX_SPEED - 1f
+            )
+            val speed = (1f + speedAdjust).coerceIn(MIN_SPEED, MAX_SPEED)
+            return DriftAction.SoftCorrect(drift, speed)
+        } else {
+            return DriftAction.SoftSeek(drift, expectedPositionMs)
         }
     }
 
     fun apply(
         player: Player,
-        expectedPosition: Long,
+        expectedPositionMs: Long,
         isPaused: Boolean,
-        scope: CoroutineScope,
         onStatus: (SyncStatus) -> Unit
     ) {
-        if (isPaused) {
-            val drift = player.currentPosition - expectedPosition
-            if (kotlin.math.abs(drift) < hardSeekDriftMs) {
-                onStatus(SyncStatus.Synced)
-            }
-            return
-        }
+        if (isPaused) return
 
-        when (val action = evaluate(player.currentPosition, expectedPosition)) {
+        when (val action = evaluate(player.currentPosition, expectedPositionMs)) {
             is DriftAction.InSync -> {
-                repeatedHardSeeks = 0
+                player.setPlaybackSpeed(1f)
                 onStatus(SyncStatus.Synced)
             }
             is DriftAction.SoftCorrect -> {
-                repeatedHardSeeks = 0
                 player.setPlaybackSpeed(action.speed)
                 onStatus(SyncStatus.Correcting)
-                resetJob?.cancel()
-                resetJob = scope.launch {
-                    delay(action.durationMs.coerceIn(250L, 6_000L))
-                    player.setPlaybackSpeed(1f)
-                    onStatus(SyncStatus.Synced)
-                }
             }
-            is DriftAction.HardSeek -> {
-                repeatedHardSeeks += 1
-                player.seekTo(action.targetPosition)
+            is DriftAction.SoftSeek -> {
+                val currentPos = player.currentPosition
+                val target = currentPos + ((action.expectedPosition - currentPos) * 0.8f).toLong()
+                player.seekTo(target)
                 player.setPlaybackSpeed(1f)
                 onStatus(SyncStatus.Correcting)
             }
         }
     }
+
+    fun resetOnCommand() {
+        smoothedDrift = 0.0
+    }
 }
 
 sealed interface DriftAction {
     data class InSync(val driftMs: Long) : DriftAction
-    data class SoftCorrect(val driftMs: Long, val speed: Float, val durationMs: Long) : DriftAction
-    data class HardSeek(val driftMs: Long, val targetPosition: Long) : DriftAction
+    data class SoftCorrect(val driftMs: Long, val speed: Float) : DriftAction
+    data class SoftSeek(val driftMs: Long, val expectedPosition: Long) : DriftAction
 }
 
 enum class SyncStatus {

@@ -1,64 +1,65 @@
-/**
- * DriftCorrector — Exact port of DriftCorrector.kt
- * 3-tier drift correction for synchronized video playback.
- */
+const INSYNC_THRESHOLD_MS = 50;
+const SOFT_SEEK_THRESHOLD_MS = 1500;
+const PROPORTIONAL_GAIN = 1 / 5000;
+const MIN_SPEED = 0.85;
+const MAX_SPEED = 1.15;
+const SMOOTH_FACTOR = 0.5;
 
-const ACCEPTABLE_DRIFT_MS = 500;
-const HARD_SEEK_DRIFT_MS = 3000;
-
-let resetTimer = null;
+let smoothedDrift = 0;
 
 export function evaluate(currentPosition, expectedPosition) {
-  const drift = currentPosition - expectedPosition;
-  const magnitude = Math.abs(drift);
+  const rawDrift = currentPosition - expectedPosition;
+  const magnitude = Math.abs(rawDrift);
 
-  if (magnitude < ACCEPTABLE_DRIFT_MS) {
-    return { type: 'inSync', drift };
-  } else if (magnitude < HARD_SEEK_DRIFT_MS) {
-    const speed = drift < 0 ? 1.12 : 0.88;
-    const durationMs = magnitude / 0.12;
-    return { type: 'softCorrect', drift, speed, durationMs };
+  if (magnitude < INSYNC_THRESHOLD_MS) {
+    smoothedDrift = 0;
+    return { type: 'inSync', driftMs: rawDrift };
+  }
+
+  smoothedDrift = SMOOTH_FACTOR * rawDrift + (1 - SMOOTH_FACTOR) * smoothedDrift;
+  const drift = Math.round(smoothedDrift);
+  const mag = Math.abs(drift);
+
+  if (mag < SOFT_SEEK_THRESHOLD_MS) {
+    const speedAdjust = Math.min(Math.max(drift * PROPORTIONAL_GAIN, MIN_SPEED - 1), MAX_SPEED - 1);
+    const speed = Math.min(Math.max(1 + speedAdjust, MIN_SPEED), MAX_SPEED);
+    return { type: 'softCorrect', driftMs: drift, speed };
   } else {
-    return { type: 'hardSeek', drift, targetPosition: expectedPosition };
+    return { type: 'softSeek', driftMs: drift, expectedPosition };
   }
 }
 
-export function applyDriftCorrection(video, expectedPosition, isPaused, onStatus) {
+export function applyDriftCorrection(video, expectedPositionMs, isPaused, onStatus) {
   const currentPosition = video.currentTime * 1000;
-  const action = evaluate(currentPosition, expectedPosition);
+  const action = evaluate(currentPosition, expectedPositionMs);
 
-  if (isPaused) {
-    const drift = Math.abs(currentPosition - expectedPosition);
-    if (drift < HARD_SEEK_DRIFT_MS && onStatus) onStatus('synced');
-    return;
-  }
+  if (isPaused) return;
 
   switch (action.type) {
     case 'inSync':
+      video.playbackRate = 1.0;
       if (onStatus) onStatus('synced');
       break;
 
     case 'softCorrect':
       video.playbackRate = action.speed;
       if (onStatus) onStatus('correcting');
-      if (resetTimer) clearTimeout(resetTimer);
-      resetTimer = setTimeout(() => {
-        video.playbackRate = 1.0;
-        if (onStatus) onStatus('synced');
-      }, Math.min(Math.max(action.durationMs, 250), 6000));
       break;
 
-    case 'hardSeek':
-      video.currentTime = action.targetPosition / 1000;
+    case 'softSeek':
+      const currentMs = video.currentTime * 1000;
+      const targetMs = currentMs + (action.expectedPosition - currentMs) * 0.8;
+      video.currentTime = Math.max(targetMs / 1000, 0);
       video.playbackRate = 1.0;
       if (onStatus) onStatus('correcting');
       break;
   }
 }
 
+export function resetDriftOnCommand() {
+  smoothedDrift = 0;
+}
+
 export function cleanup() {
-  if (resetTimer) {
-    clearTimeout(resetTimer);
-    resetTimer = null;
-  }
+  smoothedDrift = 0;
 }

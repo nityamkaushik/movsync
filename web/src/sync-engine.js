@@ -4,14 +4,13 @@
  */
 
 import * as firebaseSync from './firebase-sync.js';
-import { applyDriftCorrection, cleanup as cleanupDrift } from './drift-corrector.js';
+import { applyDriftCorrection, cleanup as cleanupDrift, resetDriftOnCommand } from './drift-corrector.js';
 
 let heartbeatInterval = null;
+let rttInterval = null;
 let unsubSync = null;
 let unsubHeartbeat = null;
 let applyingRemoteCommand = false;
-let lastCommandTimestamp = 0;
-const COMMAND_COOLDOWN_MS = 1500;
 
 /**
  * Start the sync engine for a room.
@@ -24,12 +23,13 @@ const COMMAND_COOLDOWN_MS = 1500;
  */
 export function start({ roomCode, userId, isHost, video, onStatus }) {
   stop(roomCode);
+  firebaseSync.getServerTime(); // Ensure server time offset starts observing
 
   // 1. Listen to sync commands (both host & participant)
   unsubSync = firebaseSync.listenToSync(roomCode, (state) => {
     if (state.senderId === userId) return;
     applyingRemoteCommand = true;
-    lastCommandTimestamp = Date.now();
+    resetDriftOnCommand();
     switch (state.command) {
       case 'play':
         video.currentTime = state.position / 1000;
@@ -51,21 +51,28 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
 
   // 2. Heartbeat & Drift Correction
   if (isHost) {
-    // Host writes heartbeat every 2 seconds
+    // Host writes heartbeat every 500ms
     heartbeatInterval = setInterval(() => {
       firebaseSync.writeHeartbeat(roomCode, {
         position: Math.round(video.currentTime * 1000),
         isPlaying: !video.paused,
       });
-    }, 2000);
+    }, 500);
   } else {
+    // Initial RTT measurement
+    firebaseSync.measureRtt(roomCode, userId);
+    // Periodic RTT re-measurement
+    rttInterval = setInterval(() => {
+      firebaseSync.measureRtt(roomCode, userId);
+    }, 30000);
+
     // Participant listens to heartbeat and applies drift correction
     unsubHeartbeat = firebaseSync.listenToHeartbeat(roomCode, (heartbeat) => {
       if (applyingRemoteCommand) return;
-      const now = Date.now();
-      if (now - lastCommandTimestamp < COMMAND_COOLDOWN_MS) return;
 
-      const adjustedPosition = heartbeat.position + (now - heartbeat.timestamp);
+      const oneWayLatency = firebaseSync.getOneWayLatency();
+      const serverNow = firebaseSync.getServerTime();
+      const adjustedPosition = heartbeat.position + (serverNow - heartbeat.timestamp) - oneWayLatency;
 
       if (heartbeat.isPlaying && video.paused) {
         video.play().catch(() => {});
@@ -79,7 +86,8 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
     // Late joiner: fetch heartbeat once and catch up
     firebaseSync.getHeartbeatOnce(roomCode).then((heartbeat) => {
       if (heartbeat) {
-        const adjustedPosition = heartbeat.position + (Date.now() - heartbeat.timestamp);
+        const oneWayLatency = firebaseSync.getOneWayLatency();
+        const adjustedPosition = heartbeat.position + (firebaseSync.getServerTime() - heartbeat.timestamp) - oneWayLatency;
         video.currentTime = Math.max(adjustedPosition / 1000, 0);
         if (heartbeat.isPlaying) {
           video.play().catch(() => {});
@@ -98,6 +106,10 @@ export function stop(roomCode) {
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
     heartbeatInterval = null;
+  }
+  if (rttInterval) {
+    clearInterval(rttInterval);
+    rttInterval = null;
   }
   if (unsubSync) {
     unsubSync();

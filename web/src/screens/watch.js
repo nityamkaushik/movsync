@@ -828,6 +828,11 @@ function cleanup(roomCode) {
     URL.revokeObjectURL(externalSubtitleBlobUrl);
     externalSubtitleBlobUrl = null;
   }
+  if (window.__movsync_videoUrl) {
+    URL.revokeObjectURL(window.__movsync_videoUrl);
+    delete window.__movsync_videoUrl;
+  }
+  delete window.__movsync_file;
 
   const watchScreen = document.querySelector('#watchScreen');
   if (watchScreen?._keyHandler) {

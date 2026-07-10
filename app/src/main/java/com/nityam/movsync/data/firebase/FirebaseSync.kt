@@ -32,6 +32,21 @@ class FirebaseSync(
     fun getEstimatedServerTime(): Long {
         return System.currentTimeMillis() + serverTimeOffset
     }
+
+    private var measuredRttMs: Long = 100L
+
+    suspend fun measureRtt(roomCode: String): Long {
+        val uid = firebaseAuth.currentUser?.uid ?: return measuredRttMs
+        val pingRef = roomRef(roomCode).child("ping").child(uid)
+        val sendTime = System.currentTimeMillis()
+        pingRef.setValue(sendTime).await()
+        val rtt = System.currentTimeMillis() - sendTime
+        measuredRttMs = (measuredRttMs * 2 + rtt) / 3
+        return measuredRttMs
+    }
+
+    fun getOneWayLatency(): Long = (measuredRttMs / 2).coerceAtLeast(50L)
+
     private fun roomRef(roomCode: String) = database.reference
         .child("movsync")
         .child("rooms")

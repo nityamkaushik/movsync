@@ -17,6 +17,38 @@ export async function createRoomNode(roomCode) {
   await set(childRef(roomCode, 'createdAt'), serverTimestamp());
 }
 
+let _serverTimeOffset = 0;
+let _isObservingOffset = false;
+
+function ensureOffsetObserved() {
+  if (_isObservingOffset) return;
+  _isObservingOffset = true;
+  const offsetRef = ref(getFirebaseDb(), '.info/serverTimeOffset');
+  onValue(offsetRef, (snapshot) => {
+    _serverTimeOffset = snapshot.val() || 0;
+  });
+}
+
+export function getServerTime() {
+  ensureOffsetObserved();
+  return Date.now() + _serverTimeOffset;
+}
+
+let _measuredRttMs = 100;
+
+export async function measureRtt(roomCode, userId) {
+  const pingRef = childRef(roomCode, `ping/${userId}`);
+  const sendTime = Date.now();
+  await set(pingRef, sendTime);
+  const rtt = Date.now() - sendTime;
+  _measuredRttMs = Math.round((_measuredRttMs * 2 + rtt) / 3);
+  return _measuredRttMs;
+}
+
+export function getOneWayLatency() {
+  return Math.max(Math.round(_measuredRttMs / 2), 50);
+}
+
 export async function setRoomStarted(roomCode) {
   await set(childRef(roomCode, 'started'), true);
 }

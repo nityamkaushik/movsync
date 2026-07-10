@@ -102,6 +102,11 @@ export function renderLobby(container, { code, isHost }) {
 
   container.querySelector('#lobbyBackBtn').addEventListener('click', () => {
     cleanup();
+    if (window.__movsync_videoUrl) {
+      URL.revokeObjectURL(window.__movsync_videoUrl);
+      delete window.__movsync_videoUrl;
+    }
+    delete window.__movsync_file;
     navigate('#/');
   });
 
@@ -547,11 +552,7 @@ function cleanup() {
     bytesReceived: 0,
     totalBytes: 0,
   };
-  if (window.__movsync_videoUrl) {
-    URL.revokeObjectURL(window.__movsync_videoUrl);
-    delete window.__movsync_videoUrl;
-  }
-  delete window.__movsync_file;
+  // File and URL cleanup happens explicitly on back, or in watch.js cleanup when leaving.
 }
 
 function escapeHtml(str) {
