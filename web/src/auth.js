@@ -3,6 +3,33 @@ import { ensureFirebaseAuth } from './firebase-client.js';
 
 const DISPLAY_NAME_KEY = 'movsync_display_name';
 
+const ADJECTIVES = [
+  'cosmic', 'neon', 'zephyr', 'salty', 'fuzzy', 'moody', 'crispy', 'wobbly',
+  'sparkly', 'mystic', 'lunar', 'solar', 'turbo', 'ultra', 'mega', 'hyper',
+  'swift', 'chill', 'vivid', 'glitchy', 'frosty', 'toasty', 'breezy', 'dizzy'
+];
+
+const NOUNS = [
+  'banana', 'panda', 'fox', 'iguana', 'apple', 'penguin', 'otter', 'moose',
+  'cactus', 'tornado', 'waffle', 'burrito', 'noodle', 'pretzel', 'muffin',
+  'rocket', 'pixel', 'goblin', 'wizard', 'ninja', 'pirate', 'robot', 'alien'
+];
+
+export function generateRandomName() {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  return `${adj}${noun}`;
+}
+
+export function getOrCreateDisplayName() {
+  let name = getDisplayName();
+  if (!name) {
+    name = generateRandomName();
+    saveDisplayName(name);
+  }
+  return name;
+}
+
 /**
  * Sign in anonymously to both Supabase and Firebase.
  * Returns the Supabase user ID as the canonical userId.
