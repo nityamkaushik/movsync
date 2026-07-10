@@ -4,7 +4,7 @@
  */
 
 import * as firebaseSync from './firebase-sync.js';
-import { applyDriftCorrection, cleanup as cleanupDrift, resetDriftOnCommand } from './drift-corrector.js';
+import { cleanup as cleanupDrift, resetDriftOnCommand } from './drift-corrector.js';
 
 let heartbeatInterval = null;
 let rttInterval = null;

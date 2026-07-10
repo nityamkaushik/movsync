@@ -267,7 +267,7 @@ async function init(container, roomCode, isHost) {
     updateProgress(container);
   }, 200);
 
-  movi.play().catch(() => {});
+  movi.play().catch(() => { });
 }
 
 function populateTracks(container) {
@@ -310,7 +310,7 @@ function populateTracks(container) {
         }
       });
     }
-    if (subHint) subHint.textContent = `${subTracks.filter(t=>t.type==='subtitle').length} subtitle tracks found`;
+    if (subHint) subHint.textContent = `${subTracks.filter(t => t.type === 'subtitle').length} subtitle tracks found`;
   } else {
     if (subHint) subHint.textContent = 'No embedded subtitles detected. Load an external .srt/.vtt file.';
   }
@@ -322,8 +322,8 @@ function setupEventListeners(container, roomCode, isHost) {
 
   watchScreen.addEventListener('click', (e) => {
     if (e.target.closest('.watch-top-bar') || e.target.closest('.watch-bottom-bar') ||
-        e.target.closest('.watch-center') || e.target.closest('.watch-chat-panel') ||
-        e.target.closest('.modal-overlay') || e.target.closest('.settings-panel')) return;
+      e.target.closest('.watch-center') || e.target.closest('.watch-chat-panel') ||
+      e.target.closest('.modal-overlay') || e.target.closest('.settings-panel')) return;
 
     if (showSettings) {
       showSettings = false;
@@ -457,7 +457,7 @@ function setupEventListeners(container, roomCode, isHost) {
       if (!isOpen) select.classList.add('open');
       return;
     }
-    
+
     const option = e.target.closest('.custom-option');
     if (option) {
       const select = option.closest('.custom-select');
@@ -468,7 +468,7 @@ function setupEventListeners(container, roomCode, isHost) {
       select.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
       option.classList.add('selected');
       select.classList.remove('open');
-      
+
       if (select.id === 'audioTrackSelect') {
         if (val === 'default') {
           const tracks = movi.getAudioTracks();

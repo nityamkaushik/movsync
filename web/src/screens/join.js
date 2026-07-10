@@ -65,6 +65,11 @@ export function renderJoin(container) {
     if (codeInput.value.length !== 6) return;
     await processJoin(container, codeInput.value);
   });
+
+  // Auto-focus input so keyboard opens on mobile / cursor is ready on desktop
+  setTimeout(() => {
+    codeInput.focus();
+  }, 100);
 }
 
 async function processJoin(container, code) {
