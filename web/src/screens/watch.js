@@ -187,7 +187,14 @@ async function init(container, roomCode, isHost) {
 
   movi.resizeCanvas();
   window.addEventListener('resize', () => movi.resizeCanvas());
-  document.addEventListener('fullscreenchange', () => setTimeout(() => movi.resizeCanvas(), 100));
+  document.addEventListener('fullscreenchange', async () => {
+    setTimeout(() => movi.resizeCanvas(), 100);
+    if (document.fullscreenElement && screen.orientation && screen.orientation.lock) {
+      try { await screen.orientation.lock('landscape'); } catch (e) { /* ignore */ }
+    } else if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch (e) { /* ignore */ }
+    }
+  });
 
   setTimeout(() => populateTracks(container), 500);
 
