@@ -19,13 +19,13 @@ function dbRef(roomCode, path) {
   return ref(getFirebaseDb(), roomPath(roomCode, path));
 }
 
-export async function publishFileShare(roomCode, { seederId, fileName, fileSize, goFileCode }) {
+export async function publishFileShare(roomCode, { seederId, fileName, fileSize, shareUrl }) {
   await ensureFirebaseAuth();
   await set(dbRef(roomCode, 'fileShare'), {
     seederId,
     fileName,
     fileSize,
-    goFileCode: goFileCode || '',
+    shareUrl: shareUrl || '',
     updatedAt: serverTimestamp(),
   });
 }
@@ -42,7 +42,7 @@ export function observeFileShare(roomCode, callback) {
       seederId: value.seederId || '',
       fileName: value.fileName || '',
       fileSize: Number(value.fileSize || 0),
-      goFileCode: value.goFileCode || '',
+      shareUrl: value.shareUrl || '',
     });
   });
   return () => off(r);
@@ -62,6 +62,6 @@ export async function getFileShare(roomCode) {
     seederId: value.seederId || '',
     fileName: value.fileName || '',
     fileSize: Number(value.fileSize || 0),
-    goFileCode: value.goFileCode || '',
+    shareUrl: value.shareUrl || '',
   };
 }

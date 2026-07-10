@@ -39,6 +39,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -97,18 +98,16 @@ fun LocalWatchScreen(
     var showBrightnessIndicator by remember { mutableStateOf(false) }
     var currentVolume by remember { mutableFloatStateOf(0f) }
     var currentBrightness by remember { mutableFloatStateOf(0f) }
+    var volumeSwipeGeneration by remember { mutableIntStateOf(0) }
+    var brightnessSwipeGeneration by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(currentVolume) {
-        if (showVolumeIndicator) {
-            kotlinx.coroutines.delay(1000)
-            showVolumeIndicator = false
-        }
+    LaunchedEffect(volumeSwipeGeneration) {
+        delay(1000)
+        showVolumeIndicator = false
     }
-    LaunchedEffect(currentBrightness) {
-        if (showBrightnessIndicator) {
-            kotlinx.coroutines.delay(1000)
-            showBrightnessIndicator = false
-        }
+    LaunchedEffect(brightnessSwipeGeneration) {
+        delay(1000)
+        showBrightnessIndicator = false
     }
 
     val player = remember(videoUri) {
@@ -248,6 +247,7 @@ fun LocalWatchScreen(
                                 val newVolume = (player.volume + delta).coerceIn(0f, 1f)
                                 player.volume = newVolume
                                 currentVolume = newVolume
+                                volumeSwipeGeneration++
                                 showVolumeIndicator = true
                                 showBrightnessIndicator = false
                             } else {
@@ -259,6 +259,7 @@ fun LocalWatchScreen(
                                     attributes.screenBrightness = newBrightness
                                     window.attributes = attributes
                                     currentBrightness = newBrightness
+                                    brightnessSwipeGeneration++
                                     showBrightnessIndicator = true
                                     showVolumeIndicator = false
                                 }

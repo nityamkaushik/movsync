@@ -10,6 +10,8 @@ let heartbeatInterval = null;
 let unsubSync = null;
 let unsubHeartbeat = null;
 let applyingRemoteCommand = false;
+let lastCommandTimestamp = 0;
+const COMMAND_COOLDOWN_MS = 1500;
 
 /**
  * Start the sync engine for a room.
@@ -27,6 +29,7 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
   unsubSync = firebaseSync.listenToSync(roomCode, (state) => {
     if (state.senderId === userId) return;
     applyingRemoteCommand = true;
+    lastCommandTimestamp = Date.now();
     switch (state.command) {
       case 'play':
         video.currentTime = state.position / 1000;
@@ -58,7 +61,11 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
   } else {
     // Participant listens to heartbeat and applies drift correction
     unsubHeartbeat = firebaseSync.listenToHeartbeat(roomCode, (heartbeat) => {
-      const adjustedPosition = heartbeat.position + (Date.now() - heartbeat.timestamp);
+      if (applyingRemoteCommand) return;
+      const now = Date.now();
+      if (now - lastCommandTimestamp < COMMAND_COOLDOWN_MS) return;
+
+      const adjustedPosition = heartbeat.position + (now - heartbeat.timestamp);
 
       if (heartbeat.isPlaying && video.paused) {
         video.play().catch(() => {});
@@ -66,7 +73,7 @@ export function start({ roomCode, userId, isHost, video, onStatus }) {
         video.pause();
       }
 
-      applyDriftCorrection(video, adjustedPosition, onStatus);
+      applyDriftCorrection(video, adjustedPosition, !heartbeat.isPlaying, onStatus);
     });
 
     // Late joiner: fetch heartbeat once and catch up

@@ -9,8 +9,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nityam.movsync.MovSyncApp
-import com.nityam.movsync.data.cloud.GoFileApi
-import com.nityam.movsync.data.cloud.GoFileTransferService
+import com.nityam.movsync.data.cloud.StorageToApi
+import com.nityam.movsync.data.cloud.StorageToTransferService
 import com.nityam.movsync.data.cloud.TransferState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +21,7 @@ sealed interface FileShareUiState {
     data object NoFileShared : FileShareUiState
     data class Uploading(val bytesUploaded: Long, val totalBytes: Long) : FileShareUiState
     data class Sharing(val fileName: String, val fileSize: Long) : FileShareUiState
-    data class FileAvailable(val seederId: String, val fileName: String, val fileSize: Long, val goFileCode: String) : FileShareUiState
+    data class FileAvailable(val seederId: String, val fileName: String, val fileSize: Long, val shareUrl: String) : FileShareUiState
     data class Downloading(val bytesReceived: Long, val totalBytes: Long) : FileShareUiState
     data class Downloaded(val fileName: String, val fileUri: Uri) : FileShareUiState
     data class Verifying(val progress: Float?) : FileShareUiState
@@ -55,7 +55,7 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
                 _state.value = when {
                     info == null -> FileShareUiState.NoFileShared
                     isHost -> FileShareUiState.Sharing(info.fileName, info.fileSize)
-                    else -> FileShareUiState.FileAvailable(info.seederId, info.fileName, info.fileSize, info.goFileCode)
+                    else -> FileShareUiState.FileAvailable(info.seederId, info.fileName, info.fileSize, info.shareUrl)
                 }
             }
         }
@@ -69,24 +69,24 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
                 val fileSize = appContext.fileSize(fileUri)
 
                 // Start foreground service for upload
-                val intent = Intent(appContext, GoFileTransferService::class.java).apply {
-                    action = GoFileTransferService.ACTION_UPLOAD
-                    putExtra(GoFileTransferService.EXTRA_FILE_URI, fileUri.toString())
-                    putExtra(GoFileTransferService.EXTRA_FILE_NAME, fileName)
-                    putExtra(GoFileTransferService.EXTRA_FILE_SIZE, fileSize)
-                    putExtra(GoFileTransferService.EXTRA_ROOM_CODE, roomCode)
+                val intent = Intent(appContext, StorageToTransferService::class.java).apply {
+                    action = StorageToTransferService.ACTION_UPLOAD
+                    putExtra(StorageToTransferService.EXTRA_FILE_URI, fileUri.toString())
+                    putExtra(StorageToTransferService.EXTRA_FILE_NAME, fileName)
+                    putExtra(StorageToTransferService.EXTRA_FILE_SIZE, fileSize)
+                    putExtra(StorageToTransferService.EXTRA_ROOM_CODE, roomCode)
                 }
                 ContextCompat.startForegroundService(appContext, intent)
 
                 // Observe transfer state until upload completes or fails
-                GoFileTransferService.transferState.collect { state ->
+                StorageToTransferService.transferState.collect { state ->
                     when (state) {
                         is TransferState.Uploading -> {
                             _state.value = FileShareUiState.Uploading(state.bytesUploaded, state.totalBytes)
                         }
                         is TransferState.UploadComplete -> {
                             container.fileShareSignaling.publishFileShare(
-                                roomCode, userId, fileName, fileSize, state.goFileCode
+                                roomCode, userId, fileName, fileSize, state.shareUrl
                             )
                             _state.value = FileShareUiState.Sharing(fileName, fileSize)
                         }
@@ -108,21 +108,18 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
             runCatching {
                 _state.value = FileShareUiState.Downloading(0L, available.fileSize)
 
-                // Resolve direct download URL from GoFile code
-                val downloadUrl = GoFileApi.getDirectDownloadUrl(available.goFileCode)
-
                 // Start foreground service for download
-                val intent = Intent(appContext, GoFileTransferService::class.java).apply {
-                    action = GoFileTransferService.ACTION_DOWNLOAD
-                    putExtra(GoFileTransferService.EXTRA_DOWNLOAD_URL, downloadUrl)
-                    putExtra(GoFileTransferService.EXTRA_FILE_NAME, available.fileName)
-                    putExtra(GoFileTransferService.EXTRA_FILE_SIZE, available.fileSize)
-                    putExtra(GoFileTransferService.EXTRA_ROOM_CODE, roomCode)
+                val intent = Intent(appContext, StorageToTransferService::class.java).apply {
+                    action = StorageToTransferService.ACTION_DOWNLOAD
+                    putExtra(StorageToTransferService.EXTRA_DOWNLOAD_URL, available.shareUrl)
+                    putExtra(StorageToTransferService.EXTRA_FILE_NAME, available.fileName)
+                    putExtra(StorageToTransferService.EXTRA_FILE_SIZE, available.fileSize)
+                    putExtra(StorageToTransferService.EXTRA_ROOM_CODE, roomCode)
                 }
                 ContextCompat.startForegroundService(appContext, intent)
 
                 // Observe transfer state until download completes or fails
-                GoFileTransferService.transferState.collect { state ->
+                StorageToTransferService.transferState.collect { state ->
                     when (state) {
                         is TransferState.Downloading -> {
                             _state.value = FileShareUiState.Downloading(state.bytesDownloaded, state.totalBytes)
@@ -166,8 +163,8 @@ class LobbyFileShareViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun cancelDownload() {
-        val intent = Intent(appContext, GoFileTransferService::class.java).apply {
-            action = GoFileTransferService.ACTION_CANCEL
+        val intent = Intent(appContext, StorageToTransferService::class.java).apply {
+            action = StorageToTransferService.ACTION_CANCEL
         }
         appContext.startService(intent)
         _state.value = FileShareUiState.NoFileShared

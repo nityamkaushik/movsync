@@ -19,6 +19,8 @@ class SyncEngine(
     private var heartbeatListener: ValueEventListener? = null
     private var playerListener: Player.Listener? = null
     private var applyingRemoteCommand = false
+    private var lastCommandTimestamp = 0L
+    private val commandCooldownMs = 1500L
 
     fun start(
         roomCode: String,
@@ -35,6 +37,7 @@ class SyncEngine(
         syncListener = firebaseSync.listenToSync(roomCode) { state ->
             if (state.senderId == userId) return@listenToSync
             applyingRemoteCommand = true
+            lastCommandTimestamp = System.currentTimeMillis()
             when (state.command) {
                 "play" -> {
                     player.seekTo(state.position)
@@ -68,13 +71,17 @@ class SyncEngine(
             }
         } else {
             heartbeatListener = firebaseSync.listenToHeartbeat(roomCode) { heartbeat ->
+                if (applyingRemoteCommand) return@listenToHeartbeat
+                val now = System.currentTimeMillis()
+                if (now - lastCommandTimestamp < commandCooldownMs) return@listenToHeartbeat
+
                 val adjustedPosition = heartbeat.position + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
                 if (heartbeat.isPlaying && !player.isPlaying) {
                     player.play()
                 } else if (!heartbeat.isPlaying && player.isPlaying) {
                     player.pause()
                 }
-                driftCorrector.apply(player, adjustedPosition, scope, onStatus)
+                driftCorrector.apply(player, adjustedPosition, !player.isPlaying, scope, onStatus)
             }
             scope.launch {
                 firebaseSync.getHeartbeatOnce(roomCode)?.let { heartbeat ->

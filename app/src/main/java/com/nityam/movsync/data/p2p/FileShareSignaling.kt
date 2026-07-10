@@ -16,13 +16,13 @@ class FileShareSignaling(private val database: FirebaseDatabase) {
         .child("rooms")
         .child(roomCode.uppercase())
 
-    suspend fun publishFileShare(roomCode: String, seederId: String, fileName: String, fileSize: Long, goFileCode: String) {
+    suspend fun publishFileShare(roomCode: String, seederId: String, fileName: String, fileSize: Long, shareUrl: String) {
         roomRef(roomCode).child("fileShare").setValue(
             mapOf(
                 "seederId" to seederId,
                 "fileName" to fileName,
                 "fileSize" to fileSize,
-                "goFileCode" to goFileCode,
+                "shareUrl" to shareUrl,
                 "updatedAt" to ServerValue.TIMESTAMP
             )
         ).await()
@@ -52,7 +52,7 @@ class FileShareSignaling(private val database: FirebaseDatabase) {
             fileSize = child("fileSize").getValue(Long::class.java)
                 ?: child("fileSize").getValue(Int::class.java)?.toLong()
                 ?: 0L,
-            goFileCode = child("goFileCode").getValue(String::class.java).orEmpty()
+            shareUrl = child("shareUrl").getValue(String::class.java).orEmpty()
         )
     }
 }
@@ -61,5 +61,5 @@ data class FileShareInfo(
     val seederId: String = "",
     val fileName: String = "",
     val fileSize: Long = 0L,
-    val goFileCode: String = ""
+    val shareUrl: String = ""
 )

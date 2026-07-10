@@ -30,9 +30,18 @@ class DriftCorrector(
     fun apply(
         player: Player,
         expectedPosition: Long,
+        isPaused: Boolean,
         scope: CoroutineScope,
         onStatus: (SyncStatus) -> Unit
     ) {
+        if (isPaused) {
+            val drift = player.currentPosition - expectedPosition
+            if (kotlin.math.abs(drift) < hardSeekDriftMs) {
+                onStatus(SyncStatus.Synced)
+            }
+            return
+        }
+
         when (val action = evaluate(player.currentPosition, expectedPosition)) {
             is DriftAction.InSync -> {
                 repeatedHardSeeks = 0

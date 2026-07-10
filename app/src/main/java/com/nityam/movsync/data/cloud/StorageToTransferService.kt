@@ -23,37 +23,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.io.BufferedOutputStream
 
-/**
- * Foreground service that handles GoFile uploads and downloads.
- *
- * Started via Intent with one of the ACTION_* constants. Progress is broadcast
- * through [transferState] StateFlow so Compose UI can observe reactively.
- *
- * Actions:
- *  - [ACTION_UPLOAD]   — uploads a file from a content URI to GoFile
- *  - [ACTION_DOWNLOAD] — downloads a file from a GoFile direct URL to Movies/MovSync/
- *  - [ACTION_CANCEL]   — cancels the active transfer
- */
-class GoFileTransferService : Service() {
-
-    // ---- Coroutine scope ----
+class StorageToTransferService : Service() {
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
 
-    /** Active upload or download job — cancelled on ACTION_CANCEL. */
     private var activeTransferJob: Job? = null
 
-    /** URI of the file being downloaded (held so we can delete it on cancellation). */
     private var pendingDownloadUri: Uri? = null
-
-    // ---- Notification helpers ----
 
     private val notificationManager by lazy {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
-
-    // ---- Service lifecycle ----
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -76,30 +57,21 @@ class GoFileTransferService : Service() {
         serviceScope.cancel()
     }
 
-    // ---- Upload ----
-
     private fun handleUpload(intent: Intent) {
         val fileUriString = intent.getStringExtra(EXTRA_FILE_URI) ?: return
         val fileUri       = Uri.parse(fileUriString)
         val fileName      = intent.getStringExtra(EXTRA_FILE_NAME) ?: displayName(fileUri) ?: "movsync-video"
         val fileSize      = intent.getLongExtra(EXTRA_FILE_SIZE, 0L)
 
-        // Show initial notification and move to foreground immediately
         startForeground(NOTIFICATION_ID, buildProgressNotification("Uploading…", fileName, 0, 0))
 
         activeTransferJob = serviceScope.launch {
             runCatching {
-                val api = GoFileApi
-                val server = api.getServer()
-
-                val inputStream = contentResolver.openInputStream(fileUri)
-                    ?: error("Cannot open file for upload")
-
-                val result = api.uploadFile(
-                    server     = server,
+                val result = StorageToApi.uploadFile(
                     fileName   = fileName,
-                    inputStream = inputStream,
+                    contentType = "video/*",
                     fileSize   = fileSize,
+                    openStream = { contentResolver.openInputStream(fileUri) ?: error("Cannot open file") },
                     onProgress = { uploaded, total ->
                         val state = TransferState.Uploading(uploaded, total, fileName)
                         transferState.value = state
@@ -107,7 +79,7 @@ class GoFileTransferService : Service() {
                     }
                 )
 
-                transferState.value = TransferState.UploadComplete(result.fileCode, result.downloadPage)
+                transferState.value = TransferState.UploadComplete(result.shareUrl, result.rawUrl)
                 showCompletionNotification("Upload Complete", fileName)
             }.onFailure { error ->
                 if (error !is kotlinx.coroutines.CancellationException) {
@@ -121,14 +93,11 @@ class GoFileTransferService : Service() {
         }
     }
 
-    // ---- Download ----
-
     private fun handleDownload(intent: Intent) {
         val downloadUrl = intent.getStringExtra(EXTRA_DOWNLOAD_URL) ?: return
         val fileName    = intent.getStringExtra(EXTRA_FILE_NAME) ?: "movsync-video"
         val fileSize    = intent.getLongExtra(EXTRA_FILE_SIZE, 0L)
 
-        // Show initial notification and move to foreground immediately
         startForeground(NOTIFICATION_ID, buildProgressNotification("Downloading…", fileName, 0, 0))
 
         activeTransferJob = serviceScope.launch {
@@ -142,8 +111,7 @@ class GoFileTransferService : Service() {
                     WRITE_BUFFER_SIZE
                 )
 
-                val api = GoFileApi
-                api.downloadFile(
+                StorageToApi.downloadFile(
                     url          = downloadUrl,
                     outputStream = outputStream,
                     totalBytes   = fileSize,
@@ -154,7 +122,6 @@ class GoFileTransferService : Service() {
                     }
                 )
 
-                // Mark file as no longer pending (API 29+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     contentResolver.update(
                         outputUri,
@@ -178,13 +145,10 @@ class GoFileTransferService : Service() {
         }
     }
 
-    // ---- Cancel ----
-
     private fun handleCancel() {
         activeTransferJob?.cancel()
         activeTransferJob = null
 
-        // Delete the partial download file if one was in progress
         pendingDownloadUri?.let { uri ->
             runCatching { contentResolver.delete(uri, null, null) }
         }
@@ -193,8 +157,6 @@ class GoFileTransferService : Service() {
         transferState.value = TransferState.Idle
         stopSelf()
     }
-
-    // ---- MediaStore helper ----
 
     private fun createDownloadUri(fileName: String): Uri {
         val values = ContentValues().apply {
@@ -225,16 +187,14 @@ class GoFileTransferService : Service() {
                 if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
             }
 
-    // ---- Notification helpers ----
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "File Transfers",
-                NotificationManager.IMPORTANCE_LOW   // Low = no sound, still visible
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows GoFile upload and download progress"
+                description = "Shows upload and download progress"
                 setShowBadge(false)
             }
             notificationManager.createNotificationChannel(channel)
@@ -242,7 +202,7 @@ class GoFileTransferService : Service() {
     }
 
     private fun cancelPendingIntent(): PendingIntent {
-        val cancelIntent = Intent(this, GoFileTransferService::class.java).apply {
+        val cancelIntent = Intent(this, StorageToTransferService::class.java).apply {
             action = ACTION_CANCEL
         }
         return PendingIntent.getService(
@@ -268,20 +228,16 @@ class GoFileTransferService : Service() {
         if (max > 0) {
             builder.setProgress(max, progress, false)
         } else {
-            builder.setProgress(0, 0, true)  // Indeterminate until we know totals
+            builder.setProgress(0, 0, true)
         }
 
         return builder.build()
     }
 
-    /**
-     * Throttled notification update — called from the progress callback.
-     * Uses 500 ms gating via [lastNotificationUpdateMs] to avoid notification spam.
-     */
     @Volatile private var lastNotificationUpdateMs = 0L
 
     private fun updateProgressNotification(
-        verb: String,       // "Uploading" or "Downloading"
+        verb: String,
         fileName: String,
         done: Long,
         total: Long
@@ -320,10 +276,7 @@ class GoFileTransferService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    // ---- Companion ----
-
     companion object {
-        /** StateFlow observed by Compose ViewModels to react to transfer progress. */
         val transferState = MutableStateFlow<TransferState>(TransferState.Idle)
 
         const val ACTION_UPLOAD   = "com.nityam.movsync.UPLOAD"
@@ -338,42 +291,32 @@ class GoFileTransferService : Service() {
 
         private const val CHANNEL_ID              = "movsync_transfers"
         private const val NOTIFICATION_ID         = 1001
-        private const val WRITE_BUFFER_SIZE       = 256 * 1024      // 256 KB (aligned with GoFileApi)
+        private const val WRITE_BUFFER_SIZE       = 256 * 1024
         private const val NOTIFICATION_THROTTLE_MS = 500L
     }
 }
 
-// ---------------------------------------------------------------------------
-// TransferState — sealed interface for reactive UI observation
-// ---------------------------------------------------------------------------
-
 sealed interface TransferState {
-    /** No transfer is active. */
     data object Idle : TransferState
 
-    /** A file is currently being uploaded to GoFile. */
     data class Uploading(
         val bytesUploaded: Long,
         val totalBytes: Long,
         val fileName: String
     ) : TransferState
 
-    /** Upload finished successfully. */
     data class UploadComplete(
-        val goFileCode: String,
-        val downloadPage: String
+        val shareUrl: String,
+        val rawUrl: String
     ) : TransferState
 
-    /** A file is currently being downloaded from GoFile. */
     data class Downloading(
         val bytesDownloaded: Long,
         val totalBytes: Long,
         val fileName: String
     ) : TransferState
 
-    /** Download finished successfully. */
     data class DownloadComplete(val fileUri: Uri) : TransferState
 
-    /** An error occurred during upload or download. */
     data class Failed(val error: String) : TransferState
 }

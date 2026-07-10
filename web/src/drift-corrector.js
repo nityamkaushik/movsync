@@ -23,9 +23,15 @@ export function evaluate(currentPosition, expectedPosition) {
   }
 }
 
-export function applyDriftCorrection(video, expectedPosition, onStatus) {
-  const currentPosition = video.currentTime * 1000; // video.currentTime is in seconds
+export function applyDriftCorrection(video, expectedPosition, isPaused, onStatus) {
+  const currentPosition = video.currentTime * 1000;
   const action = evaluate(currentPosition, expectedPosition);
+
+  if (isPaused) {
+    const drift = Math.abs(currentPosition - expectedPosition);
+    if (drift < HARD_SEEK_DRIFT_MS && onStatus) onStatus('synced');
+    return;
+  }
 
   switch (action.type) {
     case 'inSync':

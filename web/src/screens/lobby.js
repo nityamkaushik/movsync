@@ -12,7 +12,7 @@ import { createParticipantAvatar } from '../components/participant-avatar.js';
 import { createChatUI } from '../components/chat.js';
 import { observeFileShare, publishFileShare } from '../firebase-file-share.js';
 import { saveRecentRoom } from '../recent-room.js';
-import { uploadToGoFile, getDirectDownloadUrl, triggerNativeDownload, formatBytes } from '../gofile-api.js';
+import { uploadToStorageTo, triggerNativeDownload, formatBytes } from '../storage-to-api.js';
 
 let unsubPresence = null;
 let unsubStarted = null;
@@ -25,6 +25,8 @@ let currentFileShare = null;
 let isLobbyChatOpen = false;
 let lobbyUnreadCount = 0;
 let chatMessagesLoaded = false;
+
+let verifiedInCurrentRoom = false;
 
 let localFileState = {
   status: 'idle',
@@ -122,6 +124,7 @@ export function renderLobby(container, { code, isHost }) {
 }
 
 async function init(container, roomCode, isHost) {
+  verifiedInCurrentRoom = false;
   currentUserId = await ensureSignedIn();
   currentRoom = await getRoomByCode(roomCode);
   await firebaseSync.trackPresence(roomCode, currentUserId, getDisplayName() || 'Movie Friend', isHost, isHost);
@@ -226,7 +229,7 @@ function renderFileShare(container, roomCode, isHost) {
     return;
   }
 
-  const verified = Boolean(window.__movsync_videoUrl);
+  const verified = verifiedInCurrentRoom;
   const progressPercent = localFileState.totalBytes
     ? Math.round((localFileState.bytesReceived / localFileState.totalBytes) * 100)
     : Math.round(localFileState.progress * 100);
@@ -317,9 +320,7 @@ async function startSharing(container, roomCode) {
     };
     renderFileShare(container, roomCode, true);
 
-    // Throttle DOM re-renders to once per 250 ms (Issue #6 fix)
-    let lastRenderTime = 0;
-    const result = await uploadToGoFile(file, (uploaded, total) => {
+    const result = await uploadToStorageTo(file, (uploaded, total) => {
       localFileState = {
         status: 'uploading',
         message: `Uploading ${formatBytes(uploaded)} / ${formatBytes(total)}`,
@@ -327,11 +328,7 @@ async function startSharing(container, roomCode) {
         bytesReceived: uploaded,
         totalBytes: total,
       };
-      const now = Date.now();
-      if (now - lastRenderTime > 250) {
-        lastRenderTime = now;
-        renderFileShare(container, roomCode, true);
-      }
+      renderFileShare(container, roomCode, true);
     });
     // Always render the final state
     renderFileShare(container, roomCode, true);
@@ -340,7 +337,7 @@ async function startSharing(container, roomCode) {
       seederId: currentUserId,
       fileName: file.name,
       fileSize: file.size,
-      goFileCode: result.fileCode,
+      shareUrl: result.shareUrl,
     });
 
     localFileState = {
@@ -370,19 +367,16 @@ async function startDownload(container, roomCode) {
   try {
     localFileState = {
       status: 'downloading',
-      message: 'Resolving download link...',
+      message: `Downloading ${formatBytes(currentFileShare.fileSize)}...`,
       progress: 0,
       bytesReceived: 0,
       totalBytes: currentFileShare.fileSize,
     };
     renderFileShare(container, roomCode, false);
 
-    // Resolve the GoFile code to a direct download URL (via proxy)
-    const downloadUrl = await getDirectDownloadUrl(currentFileShare.goFileCode);
-
     // Trigger a native browser download — bypasses CORS entirely and
     // avoids holding the file in JS memory (Issue #5 fix).
-    triggerNativeDownload(downloadUrl, currentFileShare.fileName);
+    triggerNativeDownload(currentFileShare.shareUrl, currentFileShare.fileName);
 
     localFileState = {
       status: 'idle',
@@ -437,6 +431,7 @@ async function verifyFile(container, roomCode, file) {
     }
 
     await verifyParticipant(currentRoom.id, currentRoom.code, currentUserId);
+    verifiedInCurrentRoom = true;
     if (window.__movsync_videoUrl) URL.revokeObjectURL(window.__movsync_videoUrl);
     window.__movsync_file = file;
     window.__movsync_videoUrl = URL.createObjectURL(file);
@@ -544,6 +539,7 @@ function cleanup() {
   isLobbyChatOpen = false;
   lobbyUnreadCount = 0;
   chatMessagesLoaded = false;
+  verifiedInCurrentRoom = false;
   localFileState = {
     status: 'idle',
     message: '',
@@ -551,6 +547,11 @@ function cleanup() {
     bytesReceived: 0,
     totalBytes: 0,
   };
+  if (window.__movsync_videoUrl) {
+    URL.revokeObjectURL(window.__movsync_videoUrl);
+    delete window.__movsync_videoUrl;
+  }
+  delete window.__movsync_file;
 }
 
 function escapeHtml(str) {

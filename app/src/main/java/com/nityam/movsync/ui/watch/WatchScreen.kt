@@ -206,18 +206,16 @@ fun WatchScreen(
     var showBrightnessIndicator by remember { mutableStateOf(false) }
     var currentVolume by remember { mutableFloatStateOf(1f) }
     var currentBrightness by remember { mutableFloatStateOf(0f) }
+    var volumeSwipeGeneration by remember { mutableIntStateOf(0) }
+    var brightnessSwipeGeneration by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(currentVolume) {
-        if (showVolumeIndicator) {
-            delay(1000)
-            showVolumeIndicator = false
-        }
+    LaunchedEffect(volumeSwipeGeneration) {
+        delay(1000)
+        showVolumeIndicator = false
     }
-    LaunchedEffect(currentBrightness) {
-        if (showBrightnessIndicator) {
-            delay(1000)
-            showBrightnessIndicator = false
-        }
+    LaunchedEffect(brightnessSwipeGeneration) {
+        delay(1000)
+        showBrightnessIndicator = false
     }
 
 
@@ -394,6 +392,7 @@ fun WatchScreen(
                                     val newVolume = (player.volume + delta).coerceIn(0f, 1f)
                                     player.volume = newVolume
                                     currentVolume = newVolume
+                                    volumeSwipeGeneration++
                                     showVolumeIndicator = true
                                     showBrightnessIndicator = false
                                 } else {
@@ -405,6 +404,7 @@ fun WatchScreen(
                                         attributes.screenBrightness = newBrightness
                                         window.attributes = attributes
                                         currentBrightness = newBrightness
+                                        brightnessSwipeGeneration++
                                         showBrightnessIndicator = true
                                         showVolumeIndicator = false
                                     }
