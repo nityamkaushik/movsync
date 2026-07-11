@@ -35,10 +35,6 @@
               ".write": true
             }
           },
-          "fileShare": {
-            ".write": "auth != null",
-            ".read": true
-          },
           "signaling": {
             "$peerId": {
               ".write": "auth != null",

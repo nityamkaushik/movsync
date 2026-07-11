@@ -5,13 +5,10 @@
 import { getOrCreateDisplayName, saveDisplayName, generateRandomName } from '../auth.js';
 import { navigate } from '../router.js';
 import { isConfigured } from '../config.js';
-import { clearRecentRoom, getRecentRoom } from '../recent-room.js';
 
 export function renderHome(container) {
   const displayName = getOrCreateDisplayName();
   const configured = isConfigured();
-  const recentRoom = getRecentRoom();
-
   container.innerHTML = `
     <!-- TOP BAR -->
     <header class="top-bar">
@@ -190,10 +187,6 @@ export function renderHome(container) {
   setupLocalPlay(container, '#localPlayBtnDesktop', '#localPlayFileInput');
   setupLocalPlay(container, '#localPlayBtnPhone', '#localPlayFileInputPhone');
 
-  // ── Recent room ────────────────────────────────────────
-  if (recentRoom) {
-    renderRecentRoomToast(container, recentRoom);
-  }
 }
 
 function setupNameEditing(container) {
@@ -258,25 +251,6 @@ function setupLocalPlay(container, btnSelector, inputSelector) {
     window.__movsync_file = file;
     window.__movsync_videoUrl = URL.createObjectURL(file);
     navigate('#/watch/local/true');
-  });
-}
-
-function renderRecentRoomToast(container, room) {
-  const toast = document.createElement('div');
-  toast.className = 'recent-toast';
-  toast.innerHTML = `
-    <span class="recent-toast-text">Rejoin ${escapeHtml(room.movieName || 'room')}?</span>
-    <button class="recent-toast-btn" id="recentRejoinBtn" type="button">Join</button>
-    <button class="recent-toast-dismiss" id="recentDismissBtn" type="button">&times;</button>
-  `;
-  container.appendChild(toast);
-
-  container.querySelector('#recentRejoinBtn')?.addEventListener('click', () => {
-    navigate(`#/lobby/${room.code}/false`);
-  });
-  container.querySelector('#recentDismissBtn')?.addEventListener('click', () => {
-    clearRecentRoom();
-    toast.remove();
   });
 }
 

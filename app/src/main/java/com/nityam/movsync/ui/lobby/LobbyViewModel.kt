@@ -15,8 +15,6 @@ class LobbyViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as MovSyncApp
     private val firebaseSync = app.container.firebaseSync
     private val authRepository = app.container.authRepository
-    private val recentRoomRepository = app.container.recentRoomRepository
-    private val roomRepository = app.container.roomRepository
     private var presenceJob: Job? = null
     private var observedRoomCode: String? = null
     private val _participants = MutableStateFlow<List<PresenceUser>>(emptyList())
@@ -41,8 +39,6 @@ class LobbyViewModel(application: Application) : AndroidViewModel(application) {
             val userId = authRepository.ensureSignedIn()
             val displayName = authRepository.displayName.first().ifBlank { "Movie Friend" }
             firebaseSync.trackPresence(roomCode, userId, displayName, isHost, verified = isHost)
-            val room = roomRepository.getRoomByCode(roomCode)
-            recentRoomRepository.save(roomCode, room?.movieName, isHost)
         }
     }
 

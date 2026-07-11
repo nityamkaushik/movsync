@@ -47,9 +47,13 @@ class RoomRepository(
     suspend fun joinRoom(
         userId: String,
         displayName: String,
-        code: String
+        code: String,
+        fingerprint: String
     ): JoinResult {
         val room = getRoomByCode(code) ?: return JoinResult.NotFound
+        if (room.movieFingerprint != fingerprint) {
+            return JoinResult.FingerprintMismatch(room)
+        }
         addParticipant(room.id, userId, displayName, isHost = false, verified = false)
         firebaseSync.trackPresence(room.code, userId, displayName, isHost = false, verified = false)
         return JoinResult.Joined(room)
@@ -132,5 +136,6 @@ class RoomRepository(
 
 sealed interface JoinResult {
     data class Joined(val room: Room) : JoinResult
+    data class FingerprintMismatch(val room: Room) : JoinResult
     data object NotFound : JoinResult
 }

@@ -50,10 +50,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <service
-            android:name=".data.cloud.StorageToTransferService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false" />
     </application>
 
 </manifest>

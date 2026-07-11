@@ -45,7 +45,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.nityam.movsync.BuildConfig
 import com.nityam.movsync.R
-import com.nityam.movsync.data.repository.RecentRoom
 import com.nityam.movsync.ui.theme.*
 import androidx.compose.ui.res.painterResource
 
@@ -55,7 +54,6 @@ fun HomeScreen(
     onCreateRoom: (Uri) -> Unit,
     onJoinRoom: () -> Unit,
     onLocalPlay: (Uri) -> Unit,
-    onRejoinRoom: (String) -> Unit,
     navController: NavController,
     viewModel: HomeViewModel = viewModel()
 ) {
@@ -82,8 +80,6 @@ fun HomeScreen(
     }
     val displayName by viewModel.displayName.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
-    val recentRoom by viewModel.recentRoom.collectAsStateWithLifecycle()
-
     Scaffold(
         containerColor = CinemaBlack
     ) { padding ->
@@ -314,14 +310,6 @@ fun HomeScreen(
                     )
                 )
 
-                recentRoom?.let { room ->
-                    RecentRoomCard(
-                        room = room,
-                        onRejoin = { onRejoinRoom(room.code) },
-                        onDismiss = viewModel::clearRecentRoom
-                    )
-                }
-
                 // ── Section heading ────────────────────────────────────
                 Text(
                     "What would you like to do?",
@@ -391,111 +379,6 @@ fun HomeScreen(
                         "by Team Nityam",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecentRoomCard(
-    room: RecentRoom,
-    onRejoin: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(SoftSurface)
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(ElectricPurple.copy(alpha = 0.18f), CyanAccent.copy(alpha = 0.08f))
-                    )
-                )
-        )
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        "Recent Room",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = CyanAccent,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        room.movieName ?: "Movie room",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                    Text(
-                        relativeRoomTime(room.timestamp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Dismiss recent room",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    room.code.take(6).forEach { char ->
-                        Box(
-                            modifier = Modifier
-                                .size(width = 30.dp, height = 38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.White.copy(alpha = 0.08f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                char.toString(),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Brush.linearGradient(listOf(ElectricPurple, CyanAccent)))
-                        .clickable(onClick = onRejoin)
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Rejoin",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
                     )
                 }
             }
