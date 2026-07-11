@@ -1,6 +1,7 @@
 package com.nityam.movsync.ui.lobby
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nityam.movsync.MovSyncApp
@@ -39,7 +40,11 @@ class LobbyViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startRoom(roomCode: String) {
         viewModelScope.launch {
-            firebaseSync.setRoomStarted(roomCode)
+            try {
+                firebaseSync.setRoomStarted(roomCode)
+            } catch (e: Exception) {
+                Log.e("LobbyViewModel", "startRoom failed", e)
+            }
         }
     }
 }

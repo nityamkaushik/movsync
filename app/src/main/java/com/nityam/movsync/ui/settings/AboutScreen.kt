@@ -12,7 +12,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.nityam.movsync.ui.theme.*
 
@@ -101,7 +104,11 @@ fun AboutScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(20.dp))
             Text(
-                "Made with ♥ by Team Nityam",
+                text = buildAnnotatedString {
+                    append("Made with ")
+                    withStyle(SpanStyle(color = Color(0xFFEF4444))) { append("♥") }
+                    append(" by Team Nityam")
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )

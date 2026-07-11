@@ -1,5 +1,8 @@
 package com.nityam.movsync.ui.create
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,6 +49,8 @@ fun CreateRoomScreen(
     LaunchedEffect(state) {
         val current = state
         if (current is CreateRoomUiState.RoomCreated) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Room Code", current.room.code))
             onOpenLobby(current.room.code, current.uri)
         }
     }

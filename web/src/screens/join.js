@@ -80,6 +80,9 @@ export function renderJoin(container) {
   codeInput.addEventListener('input', () => {
     codeInput.value = codeInput.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 6);
     joinBtn.disabled = !(codeInput.value.length === 6 && selectedFile);
+    if (codeInput.value.length === 6) {
+      fileInput.click();
+    }
   });
 
   joinBtn.addEventListener('click', async () => {

@@ -24,6 +24,11 @@
             ".write": true,
             ".validate": "newData.hasChildren(['position', 'isPlaying', 'timestamp'])"
           },
+          "ping": {
+            "$userId": {
+              ".write": "auth != null"
+            }
+          },
           "presence": {
             "$userId": {
               ".write": "auth != null || !data.exists()",

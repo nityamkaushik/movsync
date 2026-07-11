@@ -83,9 +83,9 @@ class SyncEngine(
                 if (applyingRemoteCommand) return@listenToHeartbeat
 
                 val oneWayLatency = firebaseSync.getOneWayLatency()
-                val adjustedPosition = heartbeat.position
-                    + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
-                    - oneWayLatency
+                val adjustedPosition = heartbeat.position + 
+                    (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp) + 
+                    oneWayLatency
 
                 if (heartbeat.isPlaying && !player.isPlaying) {
                     player.play()
@@ -97,9 +97,9 @@ class SyncEngine(
             scope.launch {
                 firebaseSync.getHeartbeatOnce(roomCode)?.let { heartbeat ->
                     val oneWayLatency = firebaseSync.getOneWayLatency()
-                    val adjustedPosition = heartbeat.position
-                        + (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp)
-                        - oneWayLatency
+                    val adjustedPosition = heartbeat.position + 
+                        (firebaseSync.getEstimatedServerTime() - heartbeat.timestamp) + 
+                        oneWayLatency
                     player.seekTo(adjustedPosition.coerceAtLeast(0L))
                     if (heartbeat.isPlaying) player.play() else player.pause()
                 }

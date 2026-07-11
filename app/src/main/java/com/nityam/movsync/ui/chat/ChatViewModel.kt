@@ -1,6 +1,7 @@
 package com.nityam.movsync.ui.chat
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nityam.movsync.MovSyncApp
@@ -26,7 +27,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (activeRoomCode == roomCode) return
         activeRoomCode = roomCode
         viewModelScope.launch {
-            _currentUserId.value = container.authRepository.ensureSignedIn()
+            try {
+                _currentUserId.value = container.authRepository.ensureSignedIn()
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "ensureSignedIn failed", e)
+            }
         }
         viewModelScope.launch {
             container.firebaseSync.observeChatMessages(roomCode).collect {
@@ -40,15 +45,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (text.isBlank()) return
         
         viewModelScope.launch {
-            val userId = container.authRepository.ensureSignedIn()
-            _currentUserId.value = userId
-            val displayName = container.authRepository.displayName.first()
-            val message = ChatMessage(
-                senderId = userId,
-                senderName = displayName.ifBlank { "User" },
-                message = text.trim()
-            )
-            container.firebaseSync.sendMessage(roomCode, message)
+            try {
+                val userId = container.authRepository.ensureSignedIn()
+                _currentUserId.value = userId
+                val displayName = container.authRepository.displayName.first()
+                val message = ChatMessage(
+                    senderId = userId,
+                    senderName = displayName.ifBlank { "User" },
+                    message = text.trim()
+                )
+                container.firebaseSync.sendMessage(roomCode, message)
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "sendMessage failed", e)
+            }
         }
     }
 }

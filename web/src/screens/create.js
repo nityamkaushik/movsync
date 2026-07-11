@@ -144,6 +144,9 @@ async function processFile(container, file) {
     window.__movsync_file = file;
     window.__movsync_videoUrl = URL.createObjectURL(file);
 
+    // Copy room code to clipboard
+    try { await navigator.clipboard.writeText(room.code); } catch (_) {}
+
     // Navigate to lobby
     navigate(`#/lobby/${room.code}/true`);
   } catch (err) {

@@ -1,6 +1,7 @@
 package com.nityam.movsync.ui.watch
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
@@ -32,22 +33,26 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
         activePlayer = player
         isHostRef = isHost
         viewModelScope.launch {
-            val userId = container.authRepository.ensureSignedIn()
-            
-            // Observe allow controls for UI
-            launch {
-                _allowControls.emitAll(container.firebaseSync.observeAllowControls(roomCode))
+            try {
+                val userId = container.authRepository.ensureSignedIn()
+                
+                // Observe allow controls for UI
+                launch {
+                    _allowControls.emitAll(container.firebaseSync.observeAllowControls(roomCode))
+                }
+                
+                container.syncEngine.start(
+                    roomCode = roomCode,
+                    userId = userId,
+                    isHost = isHost,
+                    player = player,
+                    scope = viewModelScope,
+                    allowControlsFlow = _allowControls,
+                    onStatus = { _syncStatus.value = it }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "start failed", e)
             }
-            
-            container.syncEngine.start(
-                roomCode = roomCode,
-                userId = userId,
-                isHost = isHost,
-                player = player,
-                scope = viewModelScope,
-                allowControlsFlow = _allowControls,
-                onStatus = { _syncStatus.value = it }
-            )
         }
     }
 
@@ -71,8 +76,12 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
         val room = activeRoomCode ?: return
         player.play()
         viewModelScope.launch {
-            val userId = container.authRepository.ensureSignedIn()
-            container.syncEngine.broadcastCommand(room, userId, "play", player.currentPosition, player.playbackParameters.speed)
+            try {
+                val userId = container.authRepository.ensureSignedIn()
+                container.syncEngine.broadcastCommand(room, userId, "play", player.currentPosition, player.playbackParameters.speed)
+            } catch (e: Exception) {
+                Log.e(TAG, "userPlay broadcast failed", e)
+            }
         }
     }
 
@@ -81,8 +90,12 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
         val room = activeRoomCode ?: return
         player.pause()
         viewModelScope.launch {
-            val userId = container.authRepository.ensureSignedIn()
-            container.syncEngine.broadcastCommand(room, userId, "pause", player.currentPosition, player.playbackParameters.speed)
+            try {
+                val userId = container.authRepository.ensureSignedIn()
+                container.syncEngine.broadcastCommand(room, userId, "pause", player.currentPosition, player.playbackParameters.speed)
+            } catch (e: Exception) {
+                Log.e(TAG, "userPause broadcast failed", e)
+            }
         }
     }
 
@@ -91,13 +104,21 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
         val room = activeRoomCode ?: return
         player.seekTo(positionMs)
         viewModelScope.launch {
-            val userId = container.authRepository.ensureSignedIn()
-            container.syncEngine.broadcastCommand(room, userId, "seek", positionMs, player.playbackParameters.speed)
+            try {
+                val userId = container.authRepository.ensureSignedIn()
+                container.syncEngine.broadcastCommand(room, userId, "seek", positionMs, player.playbackParameters.speed)
+            } catch (e: Exception) {
+                Log.e(TAG, "userSeek broadcast failed", e)
+            }
         }
     }
 
     override fun onCleared() {
         stop()
         super.onCleared()
+    }
+
+    private companion object {
+        const val TAG = "WatchViewModel"
     }
 }

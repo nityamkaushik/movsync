@@ -6,7 +6,7 @@ import kotlin.math.abs
 class DriftCorrector {
     companion object {
         private const val INSYNC_THRESHOLD_MS = 50L
-        private const val SOFT_SEEK_THRESHOLD_MS = 1500L
+        private const val SOFT_SEEK_THRESHOLD_MS = 800L
         private const val PROPORTIONAL_GAIN = 1f / 5000f
         private const val MIN_SPEED = 0.85f
         private const val MAX_SPEED = 1.15f
@@ -58,7 +58,7 @@ class DriftCorrector {
             }
             is DriftAction.SoftSeek -> {
                 val currentPos = player.currentPosition
-                val target = currentPos + ((action.expectedPosition - currentPos) * 0.8f).toLong()
+                val target = currentPos + ((action.expectedPosition - currentPos) * 1.0f).toLong()
                 player.seekTo(target)
                 player.setPlaybackSpeed(1f)
                 onStatus(SyncStatus.Correcting)

@@ -73,6 +73,10 @@ export function renderHome(container) {
       <button class="home-local-play stagger-4" id="localPlayBtnDesktop" type="button">
         Local Play for testing →
       </button>
+      <div class="home-footer">
+        <span class="home-version-chip">MovSync v2.1.1</span>
+        <span class="home-attribution">Team Nityam</span>
+      </div>
     </main>
 
     <!-- PHONE LAYOUT -->
@@ -124,6 +128,10 @@ export function renderHome(container) {
            class="home-phone-android" target="_blank" rel="noopener">
           Android App ↓
         </a>
+      </div>
+      <div class="home-footer">
+        <span class="home-version-chip">MovSync v2.1.1</span>
+        <span class="home-attribution">Team Nityam</span>
       </div>
     </main>
   `;

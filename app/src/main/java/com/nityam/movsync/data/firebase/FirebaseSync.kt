@@ -1,5 +1,6 @@
 package com.nityam.movsync.data.firebase
 
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -39,9 +40,13 @@ class FirebaseSync(
         val uid = firebaseAuth.currentUser?.uid ?: return measuredRttMs
         val pingRef = roomRef(roomCode).child("ping").child(uid)
         val sendTime = System.currentTimeMillis()
-        pingRef.setValue(sendTime).await()
-        val rtt = System.currentTimeMillis() - sendTime
-        measuredRttMs = (measuredRttMs * 2 + rtt) / 3
+        try {
+            pingRef.setValue(sendTime).await()
+            val rtt = System.currentTimeMillis() - sendTime
+            measuredRttMs = (measuredRttMs * 2 + rtt) / 3
+        } catch (_: Exception) {
+            // Ping measurement is best-effort; failures shouldn't crash the app
+        }
         return measuredRttMs
     }
 
@@ -53,11 +58,19 @@ class FirebaseSync(
         .child(roomCode.uppercase())
 
     suspend fun createRoomNode(roomCode: String) {
-        roomRef(roomCode).child("createdAt").setValue(ServerValue.TIMESTAMP).await()
+        try {
+            roomRef(roomCode).child("createdAt").setValue(ServerValue.TIMESTAMP).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "createRoomNode failed", e)
+        }
     }
 
     suspend fun setRoomStarted(roomCode: String) {
-        roomRef(roomCode).child("started").setValue(true).await()
+        try {
+            roomRef(roomCode).child("started").setValue(true).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "setRoomStarted failed", e)
+        }
     }
 
     fun observeRoomStarted(roomCode: String): Flow<Boolean> = callbackFlow {
@@ -66,7 +79,7 @@ class FirebaseSync(
                 trySend(snapshot.getValue(Boolean::class.java) ?: false)
             }
             override fun onCancelled(error: DatabaseError) {
-                close(error.toException())
+                Log.e(TAG, "observeRoomStarted cancelled", error.toException())
             }
         }
         val ref = roomRef(roomCode).child("started")
@@ -75,7 +88,11 @@ class FirebaseSync(
     }
 
     suspend fun setAllowControls(roomCode: String, allow: Boolean) {
-        roomRef(roomCode).child("allowControls").setValue(allow).await()
+        try {
+            roomRef(roomCode).child("allowControls").setValue(allow).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "setAllowControls failed", e)
+        }
     }
 
     fun observeAllowControls(roomCode: String): Flow<Boolean> = callbackFlow {
@@ -84,7 +101,7 @@ class FirebaseSync(
                 trySend(snapshot.getValue(Boolean::class.java) ?: true)
             }
             override fun onCancelled(error: DatabaseError) {
-                close(error.toException())
+                Log.e(TAG, "observeAllowControls cancelled", error.toException())
             }
         }
         val ref = roomRef(roomCode).child("allowControls")
@@ -93,7 +110,11 @@ class FirebaseSync(
     }
 
     suspend fun setVoiceActive(roomCode: String, active: Boolean) {
-        roomRef(roomCode).child("voiceActive").setValue(active).await()
+        try {
+            roomRef(roomCode).child("voiceActive").setValue(active).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "setVoiceActive failed", e)
+        }
     }
 
     fun observeVoiceActive(roomCode: String): Flow<Boolean> = callbackFlow {
@@ -103,7 +124,7 @@ class FirebaseSync(
             }
 
             override fun onCancelled(error: DatabaseError) {
-                close(error.toException())
+                Log.e(TAG, "observeVoiceActive cancelled", error.toException())
             }
         }
         val ref = roomRef(roomCode).child("voiceActive")
@@ -112,23 +133,31 @@ class FirebaseSync(
     }
 
     suspend fun writeSyncCommand(roomCode: String, state: SyncState) {
-        val payload = mapOf(
-            "command" to state.command,
-            "position" to state.position,
-            "speed" to state.speed,
-            "timestamp" to ServerValue.TIMESTAMP,
-            "senderId" to state.senderId
-        )
-        roomRef(roomCode).child("sync").setValue(payload).await()
+        try {
+            val payload = mapOf(
+                "command" to state.command,
+                "position" to state.position,
+                "speed" to state.speed,
+                "timestamp" to ServerValue.TIMESTAMP,
+                "senderId" to state.senderId
+            )
+            roomRef(roomCode).child("sync").setValue(payload).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "writeSyncCommand failed", e)
+        }
     }
 
     suspend fun writeHeartbeat(roomCode: String, state: HeartbeatState) {
-        val payload = mapOf(
-            "position" to state.position,
-            "isPlaying" to state.isPlaying,
-            "timestamp" to ServerValue.TIMESTAMP
-        )
-        roomRef(roomCode).child("heartbeat").setValue(payload).await()
+        try {
+            val payload = mapOf(
+                "position" to state.position,
+                "isPlaying" to state.isPlaying,
+                "timestamp" to ServerValue.TIMESTAMP
+            )
+            roomRef(roomCode).child("heartbeat").setValue(payload).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "writeHeartbeat failed", e)
+        }
     }
 
     suspend fun trackPresence(
@@ -138,33 +167,45 @@ class FirebaseSync(
         isHost: Boolean,
         verified: Boolean
     ) {
-        if (firebaseAuth.currentUser == null) {
-            firebaseAuth.signInAnonymously().await()
-        }
+        try {
+            if (firebaseAuth.currentUser == null) {
+                firebaseAuth.signInAnonymously().await()
+            }
 
-        val presenceRef = roomRef(roomCode).child("presence").child(userId)
-        val payload = mapOf(
-            "displayName" to displayName,
-            "isHost" to isHost,
-            "online" to true,
-            "verified" to verified,
-            "updatedAt" to ServerValue.TIMESTAMP
-        )
-        presenceRef.setValue(payload).await()
-        presenceRef.child("online").onDisconnect().setValue(false)
+            val presenceRef = roomRef(roomCode).child("presence").child(userId)
+            val payload = mapOf(
+                "displayName" to displayName,
+                "isHost" to isHost,
+                "online" to true,
+                "verified" to verified,
+                "updatedAt" to ServerValue.TIMESTAMP
+            )
+            presenceRef.setValue(payload).await()
+            presenceRef.child("online").onDisconnect().setValue(false)
+        } catch (e: Exception) {
+            Log.e(TAG, "trackPresence failed", e)
+        }
     }
 
     suspend fun setPresenceVerified(roomCode: String, userId: String, verified: Boolean = true) {
-        if (firebaseAuth.currentUser == null) {
-            firebaseAuth.signInAnonymously().await()
+        try {
+            if (firebaseAuth.currentUser == null) {
+                firebaseAuth.signInAnonymously().await()
+            }
+            val presenceRef = roomRef(roomCode).child("presence").child(userId)
+            presenceRef.child("verified").setValue(verified).await()
+            presenceRef.child("updatedAt").setValue(ServerValue.TIMESTAMP).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "setPresenceVerified failed", e)
         }
-        val presenceRef = roomRef(roomCode).child("presence").child(userId)
-        presenceRef.child("verified").setValue(verified).await()
-        presenceRef.child("updatedAt").setValue(ServerValue.TIMESTAMP).await()
     }
 
     suspend fun clearPresence(roomCode: String, userId: String) {
-        roomRef(roomCode).child("presence").child(userId).removeValue().await()
+        try {
+            roomRef(roomCode).child("presence").child(userId).removeValue().await()
+        } catch (e: Exception) {
+            Log.e(TAG, "clearPresence failed", e)
+        }
     }
 
     suspend fun getHeartbeatOnce(roomCode: String): HeartbeatState? {
@@ -203,7 +244,7 @@ class FirebaseSync(
             }
 
             override fun onCancelled(error: DatabaseError) {
-                close(error.toException())
+                Log.e(TAG, "presence cancelled", error.toException())
             }
         }
         ref.addValueEventListener(listener)
@@ -219,13 +260,17 @@ class FirebaseSync(
     }
 
     suspend fun sendMessage(roomCode: String, message: com.nityam.movsync.data.model.ChatMessage) {
-        val payload = mapOf(
-            "senderId" to message.senderId,
-            "senderName" to message.senderName,
-            "message" to message.message,
-            "timestamp" to ServerValue.TIMESTAMP
-        )
-        roomRef(roomCode).child("chat").child(message.messageId).setValue(payload).await()
+        try {
+            val payload = mapOf(
+                "senderId" to message.senderId,
+                "senderName" to message.senderName,
+                "message" to message.message,
+                "timestamp" to ServerValue.TIMESTAMP
+            )
+            roomRef(roomCode).child("chat").child(message.messageId).setValue(payload).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "sendMessage failed", e)
+        }
     }
 
     fun observeChatMessages(roomCode: String): Flow<List<com.nityam.movsync.data.model.ChatMessage>> = callbackFlow {
@@ -237,7 +282,7 @@ class FirebaseSync(
             }
 
             override fun onCancelled(error: DatabaseError) {
-                close(error.toException())
+                Log.e(TAG, "observeChatMessages cancelled", error.toException())
             }
         }
         ref.addValueEventListener(listener)
@@ -285,5 +330,9 @@ class FirebaseSync(
             message = child("message").getValue(String::class.java).orEmpty(),
             timestamp = child("timestamp").getValue(Long::class.java) ?: 0L
         )
+    }
+
+    private companion object {
+        const val TAG = "FirebaseSync"
     }
 }
