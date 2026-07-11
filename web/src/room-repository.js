@@ -10,7 +10,6 @@ import { generateRoomCode } from './room-code-generator.js';
 export async function createRoom(hostId, displayName, fingerprint, movieName, durationMs) {
   const supabase = getSupabase();
 
-  // Try up to 10 times to generate a unique room code
   for (let i = 0; i < 10; i++) {
     const code = generateRoomCode();
     const existing = await getRoomByCode(code);
@@ -30,10 +29,7 @@ export async function createRoom(hostId, displayName, fingerprint, movieName, du
 
       if (error) throw error;
 
-      // Add host as participant
       await addParticipant(room.id, hostId, displayName, true, true);
-
-      // Create Firebase room node + track presence
       await firebaseSync.createRoomNode(room.code);
       await firebaseSync.trackPresence(room.code, hostId, displayName, true, true);
 
@@ -43,26 +39,18 @@ export async function createRoom(hostId, displayName, fingerprint, movieName, du
   throw new Error('Could not generate a unique room code');
 }
 
-export async function joinRoom(userId, displayName, code) {
+export async function joinRoom(userId, displayName, code, fingerprint) {
   const room = await getRoomByCode(code);
   if (!room) return { result: 'not_found' };
 
-  await addParticipant(room.id, userId, displayName, false, false);
-  await firebaseSync.trackPresence(room.code, userId, displayName, false, false);
+  if (room.movie_fingerprint !== fingerprint) {
+    return { result: 'fingerprint_mismatch', room };
+  }
+
+  await addParticipant(room.id, userId, displayName, false, true);
+  await firebaseSync.trackPresence(room.code, userId, displayName, false, true);
 
   return { result: 'joined', room };
-}
-
-export async function verifyParticipant(roomId, roomCode, userId) {
-  const supabase = getSupabase();
-  const { error } = await supabase
-    .from('participants')
-    .update({ fingerprint_verified: true })
-    .eq('room_id', roomId)
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  await firebaseSync.setPresenceVerified(roomCode, userId, true);
 }
 
 export async function getRoomByCode(code) {

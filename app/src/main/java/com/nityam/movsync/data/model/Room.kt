@@ -8,7 +8,7 @@ data class Room(
     val id: String = "",
     val code: String = "",
     @SerialName("host_id") val hostId: String = "",
-    @SerialName("movie_fingerprint") val movieFingerprint: String? = null,
+    @SerialName("movie_fingerprint") val movieFingerprint: String = "",
     @SerialName("movie_full_hash") val movieFullHash: String? = null,
     @SerialName("movie_name") val movieName: String? = null,
     @SerialName("movie_duration_ms") val movieDurationMs: Long? = null,
@@ -21,7 +21,7 @@ data class Room(
 data class RoomInsert(
     val code: String,
     @SerialName("host_id") val hostId: String,
-    @SerialName("movie_fingerprint") val movieFingerprint: String? = null,
+    @SerialName("movie_fingerprint") val movieFingerprint: String,
     @SerialName("movie_name") val movieName: String?,
     @SerialName("movie_duration_ms") val movieDurationMs: Long?,
     val status: String = "waiting"

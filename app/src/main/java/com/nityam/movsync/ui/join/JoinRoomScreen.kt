@@ -1,14 +1,19 @@
 package com.nityam.movsync.ui.join
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,6 +22,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -24,24 +30,37 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nityam.movsync.ui.components.GradientButton
+import com.nityam.movsync.ui.components.HashProgressIndicator
 import com.nityam.movsync.ui.theme.CinemaBlack
 import com.nityam.movsync.ui.theme.ElectricPurple
 import com.nityam.movsync.ui.theme.ErrorRed
+import com.nityam.movsync.ui.theme.ReelGold
+import com.nityam.movsync.ui.theme.SuccessGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JoinRoomScreen(
     onBack: () -> Unit,
-    onJoined: (String) -> Unit,
+    onJoined: (String, Uri) -> Unit,
     viewModel: JoinRoomViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focusRequester = remember { FocusRequester() }
+    val context = LocalContext.current
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.joinWithFile(context, it) }
+    }
 
     LaunchedEffect(state.result) {
         val result = state.result
         if (result is JoinResultUi.Joined) {
-            onJoined(result.room.code)
+            val selectedUri = state.selectedUri
+            if (selectedUri != null) {
+                onJoined(result.room.code, selectedUri)
+            }
         }
     }
 
@@ -134,24 +153,40 @@ fun JoinRoomScreen(
                     )
                 )
 
-                GradientButton(
-                    text = if (state.joining) "Joining..." else "Join Room",
-                    icon = Icons.AutoMirrored.Filled.Login,
-                    enabled = state.code.length == 6 && !state.joining,
-                    onClick = viewModel::joinRoom
-                )
-
-                if (state.joining) {
+                if (state.verifying) {
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = ElectricPurple)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            HashProgressIndicator(null)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Verifying file...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
+                } else if (state.result == null) {
+                    GradientButton(
+                        text = "Pick Matching Video",
+                        icon = Icons.Default.CloudUpload,
+                        enabled = state.code.length == 6 && !state.verifying,
+                        onClick = { filePickerLauncher.launch(arrayOf("video/*", "application/octet-stream")) }
+                    )
                 }
 
                 state.error?.let { message ->
                     StatusCard(message)
+                }
+
+                val result = state.result
+                if (result is JoinResultUi.Joined) {
+                    JoinedCard(result.room.code)
+                }
+                if (result is JoinResultUi.Mismatch) {
+                    MismatchCard(result.room.code)
                 }
             }
         }
@@ -175,5 +210,52 @@ private fun StatusCard(message: String) {
             color = ErrorRed,
             fontWeight = FontWeight.Medium
         )
+    }
+}
+
+@Composable
+private fun JoinedCard(roomCode: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SuccessGreen.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(22.dp))
+        Text(
+            "Joined room $roomCode",
+            style = MaterialTheme.typography.bodyMedium,
+            color = SuccessGreen,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun MismatchCard(roomCode: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ReelGold.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(Icons.Default.Warning, contentDescription = null, tint = ReelGold, modifier = Modifier.size(22.dp))
+        Column {
+            Text(
+                "Fingerprint Mismatch",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ReelGold,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Your video doesn't match room $roomCode. Pick a different file.",
+                style = MaterialTheme.typography.bodySmall,
+                color = ReelGold.copy(alpha = 0.8f)
+            )
+        }
     }
 }

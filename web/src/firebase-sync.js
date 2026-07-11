@@ -243,6 +243,4 @@ export function removeAllListeners(roomCode) {
   off(childRef(roomCode, 'started'));
   off(childRef(roomCode, 'allowControls'));
   off(childRef(roomCode, 'voiceActive'));
-  off(childRef(roomCode, 'fileShare'));
-  off(childRef(roomCode, 'signaling'));
 }

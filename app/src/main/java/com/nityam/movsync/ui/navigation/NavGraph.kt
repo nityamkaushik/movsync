@@ -29,9 +29,6 @@ fun NavGraph() {
                 onLocalPlay = { uri -> 
                     navController.navigate(Route.LocalWatch.create(uri))
                 },
-                onRejoinRoom = { code ->
-                    navController.navigate(Route.Lobby.create(code, isHost = false, uri = null))
-                },
                 navController = navController
             )
         }
@@ -54,8 +51,8 @@ fun NavGraph() {
         composable(Route.Join.path) {
             JoinRoomScreen(
                 onBack = { navController.popBackStack() },
-                onJoined = { code ->
-                    navController.navigate(Route.Lobby.create(code, isHost = false, uri = null))
+                onJoined = { code, uri ->
+                    navController.navigate(Route.Lobby.create(code, isHost = false, uri = uri))
                 }
             )
         }
@@ -70,14 +67,14 @@ fun NavGraph() {
             val roomCode = entry.arguments?.getString("roomCode").orEmpty()
             val isHost = entry.arguments?.getBoolean("isHost") ?: false
             val uriBase64 = entry.arguments?.getString("uri").orEmpty()
-            val uri = decodeUriOrNull(uriBase64)
+            val uri = decodeUriOrNull(uriBase64) ?: Uri.EMPTY
             LobbyScreen(
                 roomCode = roomCode,
                 isHost = isHost,
                 videoUri = uri,
                 onBack = { navController.popBackStack(Route.Home.path, inclusive = false) },
-                onStartWatching = { watchUri ->
-                    navController.navigate(Route.Watch.create(roomCode, isHost, watchUri))
+                onStartWatching = {
+                    navController.navigate(Route.Watch.create(roomCode, isHost, uri))
                 }
             )
         }
@@ -136,8 +133,8 @@ sealed class Route(val path: String) {
     }
     data object Join : Route("join")
     data object Lobby : Route("lobby/{roomCode}/{isHost}/{uri}") {
-        fun create(code: String, isHost: Boolean, uri: Uri?): String {
-            return "lobby/$code/$isHost/${uri?.let(::encodeUri) ?: NO_URI}"
+        fun create(code: String, isHost: Boolean, uri: Uri): String {
+            return "lobby/$code/$isHost/${encodeUri(uri)}"
         }
     }
     data object Watch : Route("watch/{roomCode}/{isHost}/{uri}") {
@@ -156,8 +153,6 @@ sealed class Route(val path: String) {
     data object Settings : Route("settings")
 }
 
-private const val NO_URI = "-"
-
 private fun encodeUri(uri: Uri): String {
     return android.util.Base64.encodeToString(
         uri.toString().toByteArray(),
@@ -166,6 +161,6 @@ private fun encodeUri(uri: Uri): String {
 }
 
 private fun decodeUriOrNull(value: String): Uri? {
-    if (value.isBlank() || value == NO_URI) return null
+    if (value.isBlank()) return null
     return Uri.parse(String(android.util.Base64.decode(value, android.util.Base64.URL_SAFE)))
 }

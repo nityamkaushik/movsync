@@ -1,10 +1,7 @@
 package com.nityam.movsync.ui.lobby
 
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -22,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,7 +29,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,7 +40,6 @@ import com.nityam.movsync.ui.chat.ChatViewModel
 import com.nityam.movsync.ui.components.ParticipantAvatar
 import com.nityam.movsync.ui.components.RoomCodeDisplay
 import com.nityam.movsync.ui.theme.*
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,19 +48,14 @@ fun LobbyScreen(
     isHost: Boolean,
     videoUri: Uri?,
     onBack: () -> Unit,
-    onStartWatching: (Uri) -> Unit,
-    viewModel: LobbyViewModel = viewModel(),
-    fileShareViewModel: LobbyFileShareViewModel = viewModel()
+    onStartWatching: () -> Unit,
+    viewModel: LobbyViewModel = viewModel()
 ) {
     BackHandler { onBack() }
 
-    val context = LocalContext.current
     val participants by viewModel.participants.collectAsStateWithLifecycle()
     val started by viewModel.started.collectAsStateWithLifecycle()
-    val fileShareState by fileShareViewModel.state.collectAsStateWithLifecycle()
-    val verifiedVideoUri by fileShareViewModel.videoUri.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
     val pulse by rememberInfiniteTransition(label = "waitingPulse").animateFloat(
         initialValue = 0.4f,
         targetValue = 1f,
@@ -77,63 +66,18 @@ fun LobbyScreen(
     val chatViewModel: ChatViewModel = viewModel()
     val chatMessages by chatViewModel.messages.collectAsStateWithLifecycle()
     val currentUserId by chatViewModel.currentUserId.collectAsStateWithLifecycle()
-    var showChat by remember(roomCode) { mutableStateOf(false) }
-    var seenMessageIds by remember(roomCode) { mutableStateOf<Set<String>>(emptySet()) }
-    var messageBaselineReady by remember(roomCode) { mutableStateOf(false) }
     var contentVisible by remember(roomCode) { mutableStateOf(false) }
-
-    val unreadCount = if (messageBaselineReady) {
-        chatMessages.count { it.senderId != currentUserId && it.messageId !in seenMessageIds }
-    } else {
-        0
-    }
-
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (e: Exception) {
-                // Some providers grant only transient access; verification can still proceed.
-            }
-            fileShareViewModel.selectFile(context, it, roomCode)
-        }
-    }
 
     LaunchedEffect(roomCode, isHost) {
         contentVisible = false
-        viewModel.observe(roomCode, isHost)
+        viewModel.observe(roomCode)
         chatViewModel.start(roomCode)
-        fileShareViewModel.observeFileShare(roomCode, isHost)
         contentVisible = true
-    }
-
-    LaunchedEffect(chatMessages, showChat, currentUserId) {
-        val ids = chatMessages.map { it.messageId }.toSet()
-        if (!messageBaselineReady) {
-            seenMessageIds = ids
-            messageBaselineReady = true
-        } else if (showChat) {
-            seenMessageIds = ids
-        }
     }
 
     LaunchedEffect(started) {
         if (started && !isHost) {
-            val watchUri = verifiedVideoUri ?: videoUri
-            if (watchUri != null) {
-                onStartWatching(watchUri)
-            } else {
-                snackbarHostState.showSnackbar("Select or download the movie file first")
-            }
-        }
-    }
-
-    DisposableEffect(roomCode) {
-        onDispose {
-            fileShareViewModel.cleanup()
+            onStartWatching()
         }
     }
 
@@ -189,8 +133,7 @@ fun LobbyScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 92.dp),
+                    .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 AnimatedLobbySection(visible = contentVisible, delayMillis = 40) {
@@ -198,40 +141,13 @@ fun LobbyScreen(
                 }
 
                 AnimatedLobbySection(visible = contentVisible, delayMillis = 100) {
-                    FileShareSection(
-                        isHost = isHost,
-                        fileShareState = fileShareState,
-                        onShareClick = {
-                            val uri = videoUri
-                            if (uri != null) {
-                                fileShareViewModel.startSharing(roomCode, uri)
-                            } else {
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Host file unavailable in this session")
-                                }
-                            }
-                        },
-                        onDownloadClick = { fileShareViewModel.startDownload(roomCode) },
-                        onSelectFileClick = { filePicker.launch(arrayOf("video/*")) },
-                        onCancelDownload = fileShareViewModel::cancelDownload
-                    )
-                }
-
-                AnimatedLobbySection(visible = contentVisible, delayMillis = 160) {
                     LobbyActionCard(
                         isHost = isHost,
                         participants = participants,
                         pulse = pulse,
                         onStartClick = {
-                            val watchUri = videoUri ?: verifiedVideoUri
-                            if (watchUri != null) {
-                                viewModel.startRoom(roomCode)
-                                onStartWatching(watchUri)
-                            } else {
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Host file unavailable in this session")
-                                }
-                            }
+                            viewModel.startRoom(roomCode)
+                            onStartWatching()
                         }
                     )
                 }
@@ -241,55 +157,30 @@ fun LobbyScreen(
                     delayMillis = 220,
                     modifier = Modifier.weight(1f)
                 ) {
-                    ParticipantsCard(participants = participants, isHost = isHost)
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 22.dp, bottom = 22.dp)
-            ) {
-                FloatingActionButton(
-                    onClick = {
-                        showChat = true
-                        seenMessageIds = chatMessages.map { it.messageId }.toSet()
-                    },
-                    containerColor = ElectricPurple,
-                    contentColor = Color.White
-                ) {
-                    BadgedBox(
-                        badge = {
-                            if (unreadCount > 0) {
-                                Badge(containerColor = ErrorRed, contentColor = Color.White) {
-                                    Text(unreadCount.coerceAtMost(99).toString())
-                                }
-                            }
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ParticipantsCard(
+                            participants = participants,
+                            isHost = isHost,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = SoftSurface.copy(alpha = 0.48f)),
+                            shape = RoundedCornerShape(22.dp)
+                        ) {
+                            ChatUI(
+                                messages = chatMessages,
+                                currentUserId = currentUserId,
+                                onSendMessage = { chatViewModel.sendMessage(it) },
+                                onClose = {},
+                                backgroundColor = Color.Transparent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                            )
                         }
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Open chat")
                     }
-                }
-            }
-
-            if (showChat) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.62f)
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 12.dp, vertical = 88.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.Black.copy(alpha = 0.78f))
-                ) {
-                    ChatUI(
-                        messages = chatMessages,
-                        currentUserId = currentUserId,
-                        onSendMessage = { chatViewModel.sendMessage(it) },
-                        onClose = { showChat = false },
-                        backgroundColor = Color.Transparent,
-                        modifier = Modifier.fillMaxSize()
-                    )
                 }
             }
         }
@@ -403,9 +294,13 @@ private fun LobbyActionCard(
 }
 
 @Composable
-private fun ParticipantsCard(participants: List<PresenceUser>, isHost: Boolean) {
+private fun ParticipantsCard(
+    participants: List<PresenceUser>,
+    isHost: Boolean,
+    modifier: Modifier = Modifier.fillMaxSize()
+) {
     Card(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = SoftSurface.copy(alpha = 0.48f)),
         shape = RoundedCornerShape(22.dp)
     ) {

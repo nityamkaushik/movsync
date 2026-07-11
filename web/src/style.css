@@ -502,50 +502,6 @@
   text-decoration: none;
 }
 
-/* ===== Recent Room Toast ===== */
-.recent-toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: rgba(16, 17, 22, 0.9);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  z-index: 90;
-  animation: fadeInUp 0.3s var(--ease-smooth);
-}
-
-.recent-toast-text {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.recent-toast-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
-  background: var(--gradient-primary);
-  color: white;
-  border: none;
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.recent-toast-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 1.1rem;
-  cursor: pointer;
-  padding: 2px 6px;
-}
-
 /* ===== Reset ===== */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -1098,56 +1054,6 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
   position: relative;
 }
 
-.lobby-ambient-bg {
-  position: absolute;
-  top: -100px;
-  right: -100px;
-  width: 50vw;
-  height: 50vw;
-  max-width: 600px;
-  max-height: 600px;
-  background: radial-gradient(circle, rgba(124, 58, 237, 0.15) 0%, transparent 60%);
-  border-radius: 50%;
-  z-index: -1;
-  pointer-events: none;
-  animation: floatAmbient 12s ease-in-out infinite alternate;
-}
-
-@keyframes floatAmbient {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(-40px, 40px) scale(1.1); }
-}
-
-.lobby-layout-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-@media (min-width: 768px) {
-  .lobby-screen {
-    max-width: 860px;
-  }
-  
-  .lobby-layout-grid {
-    flex-direction: row-reverse;
-    align-items: stretch;
-    gap: 24px;
-  }
-  
-  .lobby-col-main {
-    flex: 1.1;
-    min-width: 340px;
-  }
-  
-  .lobby-col-side {
-    flex: 1;
-    min-width: 300px;
-    display: flex;
-    flex-direction: column;
-  }
-}
-
 .lobby-section {
   animation: fadeInUp 0.48s var(--ease-smooth) both;
 }
@@ -1180,97 +1086,6 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
   inset: 0;
   pointer-events: none;
   background: radial-gradient(circle at top left, rgba(124, 58, 237, 0.05), transparent 70%);
-}
-
-.file-share-card {
-  margin-bottom: 0;
-  padding: 20px;
-  background: rgba(20, 22, 28, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.2);
-  border-radius: var(--radius-xl);
-  position: relative;
-  overflow: hidden;
-}
-
-.file-share-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.5), transparent);
-  opacity: 0.8;
-}
-
-.file-share-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.file-share-title {
-  font-size: 0.95rem;
-  margin-bottom: 2px;
-}
-
-.file-share-subtitle,
-.file-share-status {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
-.file-share-status {
-  margin-top: 10px;
-}
-
-.file-share-status.success {
-  color: var(--success-green);
-}
-
-.file-share-status.error {
-  color: var(--error-red);
-}
-
-.file-share-pill {
-  flex-shrink: 0;
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.file-share-pill.pill-live {
-  background: rgba(34, 197, 94, 0.12);
-  color: var(--success-green);
-}
-
-.file-share-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.download-progress-bar {
-  height: 6px;
-  background: var(--glass-border);
-  border-radius: 999px;
-  overflow: hidden;
-  margin-top: 12px;
-}
-
-.download-progress-fill {
-  height: 100%;
-  background: var(--gradient-primary);
-  border-radius: inherit;
-  transition: width 0.25s var(--ease-smooth);
 }
 
 .participants-header {
@@ -2219,10 +2034,6 @@ h3 { font-size: 1.25rem; line-height: 1.4; }
 
   .time-display {
     display: none;
-  }
-
-  .file-share-actions {
-    grid-template-columns: 1fr;
   }
 
   .lobby-chat-fab {
