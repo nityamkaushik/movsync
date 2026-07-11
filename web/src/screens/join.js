@@ -58,16 +58,7 @@ export function renderJoin(container) {
 
   codeInput.addEventListener('input', () => {
     codeInput.value = codeInput.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 6);
-    
-    container.querySelector('#joinError').style.display = 'none';
-    const isJoining = container.querySelector('#joinProgress').style.display === 'block';
-    
-    if (!isJoining) {
-      joinBtn.disabled = codeInput.value.length !== 6;
-      if (codeInput.value.length === 6) {
-        processJoin(container, codeInput.value);
-      }
-    }
+    joinBtn.disabled = codeInput.value.length !== 6;
   });
 
   joinBtn.addEventListener('click', async () => {
@@ -98,7 +89,7 @@ async function processJoin(container, code) {
     if (result.result === 'not_found') {
       progress.style.display = 'none';
       errorEl.style.display = 'block';
-      container.querySelector('#joinErrorText').textContent = 'Invalid room code';
+      container.querySelector('#joinErrorText').textContent = 'Room not found';
       joinBtn.disabled = false;
       return;
     }
